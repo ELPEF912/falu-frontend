@@ -1,7 +1,7 @@
 import Navbar from '../components/Navbar';
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingBag, ArrowLeft, Heart, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ShoppingBag, Heart, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Footer from '../components/Footer';

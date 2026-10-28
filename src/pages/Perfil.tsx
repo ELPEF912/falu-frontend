@@ -143,7 +143,6 @@ export default function Perfil() {
   // Preguntas, Búsquedas, Facturación y Seguidos
   const [misPreguntas, setMisPreguntas] = useState<any[]>([]);
   const [busquedasGuardadas, setBusquedasGuardadas] = useState<string[]>([]);
-  const [nuevaBusqueda, setNuevaBusqueda] = useState('');
   const [misComprasFacturacion, setMisComprasFacturacion] = useState<any[]>([]);
   const [tiendasSeguidas, setTiendasSeguidas] = useState<TiendaSeguida[]>([]);
 
@@ -308,21 +307,6 @@ export default function Perfil() {
       `falu_direcciones_${user.id_usuario}`,
       JSON.stringify(actualizadas)
     );
-  };
-
-  const agregarBusquedaGuardada = (e: FormEvent) => {
-    e.preventDefault();
-    if (!user || !nuevaBusqueda.trim()) return;
-    const actualizadas = [
-      nuevaBusqueda.trim(),
-      ...busquedasGuardadas.filter((b) => b !== nuevaBusqueda.trim())
-    ];
-    setBusquedasGuardadas(actualizadas);
-    localStorage.setItem(
-      `falu_busquedas_${user.id_usuario}`,
-      JSON.stringify(actualizadas)
-    );
-    setNuevaBusqueda('');
   };
 
   const eliminarBusqueda = (termino: string) => {

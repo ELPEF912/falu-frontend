@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingBag, ArrowLeft, PackageOpen, Star } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ShoppingBag, PackageOpen, Star } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Navbar from '../components/Navbar';

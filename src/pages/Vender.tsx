@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag,
   Car,
@@ -47,7 +47,7 @@ export default function Vender() {
   const [precio, setPrecio] = useState('');
   const [stock, setStock] = useState('1');
   const [categoria, setCategoria] = useState('Tecnología');
-  const [descripcion, setDescripcion] = useState('');
+  const [descripcion] = useState('');
   const [puntosArticulo, setPuntosArticulo] = useState<string[]>([
   '',
   ''
