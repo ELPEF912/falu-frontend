@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import SobreEsteArticulo from '../components/SobreEsteArticulo';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { verificarPerfilCompleto } from './Perfil';
@@ -39,7 +40,6 @@ import {
   registrarLogAuditoria
 } from './AdminPanel';
 import api from '../services/api';
-import SobreEsteArticulo from '../components/SobreEsteArticulo';
 
 interface AtributoFila {
   clave: string;
@@ -112,7 +112,6 @@ export interface ProductoDetalle {
   };
 }
 
-// 4 razones específicas + "Otro" para Reportar Producto
 const RAZONES_REPORTE_PRODUCTO = [
   'Producto prohibido o ilegal',
   'Publicación fraudulenta o estafa',
@@ -121,7 +120,6 @@ const RAZONES_REPORTE_PRODUCTO = [
   'Otro'
 ] as const;
 
-// Motivos para Reportar Pregunta u Opinión
 const MOTIVOS_REPORTE_INTERACCION = [
   'Spam',
   'Mensaje de odio',
@@ -164,7 +162,6 @@ export default function ProductDetail() {
   const [haComprado, setHaComprado] = useState(false);
   const [mensajeCompra, setMensajeCompra] = useState('');
 
-  // Estados de Edición
   const [modoEdicion, setModoEdicion] = useState(false);
   const [editTitulo, setEditTitulo] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
@@ -177,32 +174,27 @@ export default function ProductDetail() {
   const [editImagenes, setEditImagenes] = useState<string[]>([]);
   const [errorFotosEdit, setErrorFotosEdit] = useState('');
 
-  // Estados de Moderación Admin
   const [modalBajaAdmin, setModalBajaAdmin] = useState(false);
   const [motivoBajaSeleccionado, setMotivoBajaSeleccionado] = useState<string>(
     MOTIVOS_BAJA_ADMIN[0]
   );
 
-  // Estados de Preguntas y Respuestas
   const [preguntas, setPreguntas] = useState<Pregunta[]>([]);
   const [nuevaPregunta, setNuevaPregunta] = useState('');
   const [respuestasBorrador, setRespuestasBorrador] = useState<Record<number, string>>({});
 
-  // Estados de Opiniones
   const [opiniones, setOpiniones] = useState<Opinion[]>([]);
   const [estrellasSeleccionadas, setEstrellasSeleccionadas] = useState<number>(5);
   const [comentarioOpinion, setComentarioOpinion] = useState('');
   const [mediaOpinion, setMediaOpinion] = useState<MediaItem[]>([]);
   const [errorMedia, setErrorMedia] = useState('');
 
-  // Estados de Reporte de Producto (4 razones + Otro + Descripción)
   const [modalReportarProducto, setModalReportarProducto] = useState(false);
   const [razonReporteProd, setRazonReporteProd] = useState<string>(
     RAZONES_REPORTE_PRODUCTO[0]
   );
   const [descripcionReporteProd, setDescripcionReporteProd] = useState('');
 
-  // Estados de Reporte de Pregunta u Opinión
   const [objetivoReporte, setObjetivoReporte] = useState<{
     tipo: 'opinion' | 'pregunta';
     id: number;
@@ -224,7 +216,6 @@ export default function ProductDetail() {
 
   const esAdmin = esUsuarioAdminOSuperAdmin(user);
 
-  // Verifica si una pregunta u opinión está dentro del lapso de 4 horas para poder eliminarse
   const estaEnVentanaDe4Horas = (creadoEn?: number): boolean => {
     if (!creadoEn) return false;
     return Date.now() - creadoEn <= CUATRO_HORAS_MS;
@@ -239,75 +230,75 @@ export default function ProductDetail() {
     return `${horas}h ${minutos}m restantes`;
   };
 
+  // Función que recarga en tiempo real el stock, preguntas y opiniones cuando llega una actualización de la nube
+  const sincronizarVistaDesdeStorage = () => {
+    const guardadosLocal: ProductoDetalle[] = JSON.parse(
+      localStorage.getItem('falu_productos_locales') || '[]'
+    );
+    setTodosLosProductos(guardadosLocal);
+
+    const encontrado = guardadosLocal.find(
+      (p) => String(p.id_producto) === String(id)
+    );
+    if (encontrado) {
+      setProducto(encontrado);
+    }
+
+    if (user) {
+      const comprasGuardadas: { id_usuario: number; id_producto: number }[] = JSON.parse(
+        localStorage.getItem('falu_compras_usuarios') || '[]'
+      );
+      const compro = comprasGuardadas.some(
+        (c) =>
+          Number(c.id_usuario) === Number(user.id_usuario) &&
+          String(c.id_producto) === String(id)
+      );
+      setHaComprado(compro);
+    } else {
+      setHaComprado(false);
+    }
+
+    const todasPreguntas: Pregunta[] = JSON.parse(
+      localStorage.getItem('falu_preguntas_productos') || '[]'
+    );
+    setPreguntas(todasPreguntas.filter((p) => String(p.id_producto) === String(id)));
+
+    const todasOpiniones: Opinion[] = JSON.parse(
+      localStorage.getItem('falu_opiniones_productos') || '[]'
+    );
+    setOpiniones(todasOpiniones.filter((o) => String(o.id_producto) === String(id)));
+  };
+
   useEffect(() => {
-    const cargarDatos = async () => {
+    const cargarDatosIniciales = async () => {
       setCargando(true);
       setIndiceFoto(0);
       setMensajeCompra('');
 
-      const guardadosLocal: ProductoDetalle[] = JSON.parse(
-        localStorage.getItem('falu_productos_locales') || '[]'
-      );
-
-      let listaCompleta: ProductoDetalle[] = [...guardadosLocal];
-
       try {
         const res = await api.get('/products');
-        if (Array.isArray(res.data)) {
-          const idsLocales = new Set(guardadosLocal.map((p) => String(p.id_producto)));
-          const remotosNuevos = res.data.filter(
-            (r: ProductoDetalle) => !idsLocales.has(String(r.id_producto))
-          );
-          listaCompleta = [...guardadosLocal, ...remotosNuevos];
+        if (Array.isArray(res.data) && res.data.length > 0) {
+          localStorage.setItem('falu_productos_locales', JSON.stringify(res.data));
         }
       } catch {
+        // Usa copia local si está despertando el servidor
       }
 
-      setTodosLosProductos(listaCompleta);
-
-      const encontrado = listaCompleta.find(
-        (p) => String(p.id_producto) === String(id)
-      );
-
-      if (encontrado) {
-        setProducto(encontrado);
-      } else {
-        try {
-          const resIndividual = await api.get(`/products/${id}`);
-          setProducto(resIndividual.data || null);
-        } catch {
-          setProducto(null);
-        }
-      }
-
-      if (user) {
-        const comprasGuardadas: { id_usuario: number; id_producto: number }[] = JSON.parse(
-          localStorage.getItem('falu_compras_usuarios') || '[]'
-        );
-        const compro = comprasGuardadas.some(
-          (c) =>
-            Number(c.id_usuario) === Number(user.id_usuario) &&
-            String(c.id_producto) === String(id)
-        );
-        setHaComprado(compro);
-      } else {
-        setHaComprado(false);
-      }
-
-      const todasPreguntas: Pregunta[] = JSON.parse(
-        localStorage.getItem('falu_preguntas_productos') || '[]'
-      );
-      setPreguntas(todasPreguntas.filter((p) => String(p.id_producto) === String(id)));
-
-      const todasOpiniones: Opinion[] = JSON.parse(
-        localStorage.getItem('falu_opiniones_productos') || '[]'
-      );
-      setOpiniones(todasOpiniones.filter((o) => String(o.id_producto) === String(id)));
-
+      sincronizarVistaDesdeStorage();
       setCargando(false);
     };
 
-    cargarDatos();
+    cargarDatosIniciales();
+  }, [id, user]);
+
+  // Escucha los eventos en tiempo real (cada 2 seg) para mostrar preguntas, respuestas, reseñas y stock sin refrescar
+  useEffect(() => {
+    window.addEventListener('falu_actualizacion', sincronizarVistaDesdeStorage);
+    window.addEventListener('storage', sincronizarVistaDesdeStorage);
+    return () => {
+      window.removeEventListener('falu_actualizacion', sincronizarVistaDesdeStorage);
+      window.removeEventListener('storage', sincronizarVistaDesdeStorage);
+    };
   }, [id, user]);
 
   const guardarCambiosProducto = async (productoActualizado: ProductoDetalle) => {
@@ -316,28 +307,27 @@ export default function ProductDetail() {
     const guardadosLocal: ProductoDetalle[] = JSON.parse(
       localStorage.getItem('falu_productos_locales') || '[]'
     );
-    const nuevaListaLocal = guardadosLocal.map((p) =>
-      String(p.id_producto) === String(productoActualizado.id_producto)
-        ? productoActualizado
-        : p
+    const existe = guardadosLocal.some(
+      (p) => String(p.id_producto) === String(productoActualizado.id_producto)
     );
+    const nuevaListaLocal = existe
+      ? guardadosLocal.map((p) =>
+          String(p.id_producto) === String(productoActualizado.id_producto)
+            ? productoActualizado
+            : p
+        )
+      : [productoActualizado, ...guardadosLocal];
+
     localStorage.setItem('falu_productos_locales', JSON.stringify(nuevaListaLocal));
-    setTodosLosProductos((prev) =>
-      prev.map((p) =>
-        String(p.id_producto) === String(productoActualizado.id_producto)
-          ? productoActualizado
-          : p
-      )
-    );
+    setTodosLosProductos(nuevaListaLocal);
 
     try {
       await api.put(`/products/${productoActualizado.id_producto}`, productoActualizado);
     } catch {
-      // Mantiene persistencia local
+      // Ya sincronizado vía /api/sync
     }
   };
 
-  // Reportar Producto (4 razones + Otro + Descripción obligatoria)
   const handleConfirmarReporteProducto = (e: FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated || !user || !producto || esVendedorDueno) {
@@ -502,6 +492,7 @@ export default function ProductDetail() {
     setModoEdicion(false);
   };
 
+  // Bloqueado si es el propio vendedor dueño (Soluciona Bug 3)
   const handleConfirmarBajaAdmin = async (e: FormEvent) => {
     e.preventDefault();
     if (!producto || !esAdmin || esVendedorDueno) return;
@@ -526,7 +517,7 @@ export default function ProductDetail() {
   };
 
   const handleRestaurarPublicacionAdmin = async () => {
-    if (!producto || !esAdmin) return;
+    if (!producto || !esAdmin || esVendedorDueno) return;
 
     const actualizado: ProductoDetalle = {
       ...producto,
@@ -546,7 +537,7 @@ export default function ProductDetail() {
     });
   };
 
-  const handleComprarAhora = () => {
+  const handleComprarAhora = async () => {
     if (!isAuthenticated || !user) {
       navigate('/login');
       return;
@@ -564,6 +555,16 @@ export default function ProductDetail() {
       return;
     }
 
+    const nuevoStock = Math.max(0, Number(producto.stock) - 1);
+    const productoActualizado: ProductoDetalle = {
+      ...producto,
+      stock: nuevoStock
+    };
+
+    // 1. Actualizar stock inmediatamente para todos los usuarios en Neon
+    await guardarCambiosProducto(productoActualizado);
+
+    // 2. Registrar la compra en la lista global compartida
     const comprasGuardadas = JSON.parse(
       localStorage.getItem('falu_compras_usuarios') || '[]'
     );
@@ -575,6 +576,7 @@ export default function ProductDetail() {
     });
     localStorage.setItem('falu_compras_usuarios', JSON.stringify(comprasGuardadas));
 
+    // 3. Enviar notificación en tiempo real al vendedor y crear canal de chat
     registrarEventosPostCompra({
       id_producto: producto.id_producto,
       titulo_producto: producto.titulo,
@@ -584,17 +586,12 @@ export default function ProductDetail() {
       comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim()
     });
 
-    const nuevoStock = Math.max(0, producto.stock - 1);
-    const productoActualizado = { ...producto, stock: nuevoStock };
-    guardarCambiosProducto(productoActualizado);
-
     setHaComprado(true);
     setMensajeCompra(
       '¡Compra registrada con éxito! Ahora como comprador verificado podés dejar tu opinión abajo.'
     );
   };
 
-  // Enviar pregunta guardando timestamp
   const handleEnviarPregunta = (e: FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated || !user) {
@@ -624,7 +621,6 @@ export default function ProductDetail() {
     setNuevaPregunta('');
   };
 
-  // Eliminar mi propia pregunta (Solo permitido dentro de las primeras 4 horas)
   const handleEliminarMiPregunta = (preg: Pregunta) => {
     if (!user || Number(preg.id_usuario) !== Number(user.id_usuario)) return;
     if (!estaEnVentanaDe4Horas(preg.creado_en)) {
@@ -761,7 +757,6 @@ export default function ProductDetail() {
     setEstrellasSeleccionadas(5);
   };
 
-  // Eliminar mi propia opinión (Solo dentro de las primeras 4 horas)
   const handleEliminarMiOpinion = (op: Opinion) => {
     if (!user || Number(op.id_comprador) !== Number(user.id_usuario)) return;
     if (!estaEnVentanaDe4Horas(op.creado_en)) {
@@ -814,7 +809,6 @@ export default function ProductDetail() {
     );
   };
 
-  // Confirmar Reporte de Pregunta u Opinión (Bloqueando estrictamente auto-reportes)
   const handleConfirmarReporteInteraccion = (e: FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated || !user || !objetivoReporte) {
@@ -838,7 +832,6 @@ export default function ProductDetail() {
 
       const actualizadas = todasOpiniones.map((op) => {
         if (op.id_opinion !== objetivoReporte.id) return op;
-        // Prohibido auto-reportar opinión propia
         if (Number(op.id_comprador) === Number(user.id_usuario)) return op;
         return {
           ...op,
@@ -857,7 +850,6 @@ export default function ProductDetail() {
 
       const actualizadas = todasPreguntas.map((pr) => {
         if (pr.id_pregunta !== objetivoReporte.id) return pr;
-        // Prohibido auto-reportar pregunta propia
         if (Number(pr.id_usuario) === Number(user.id_usuario)) return pr;
         return {
           ...pr,
@@ -944,6 +936,7 @@ export default function ProductDetail() {
   const masDelVendedor = todosLosProductos.filter(
     (p) =>
       p.estado !== 'oculto' &&
+      p.estado !== 'pausado' &&
       String(p.id_producto) !== String(producto.id_producto) &&
       producto.id_vendedor &&
       Number(p.id_vendedor) === Number(producto.id_vendedor)
@@ -952,6 +945,7 @@ export default function ProductDetail() {
   const productosRelacionados = todosLosProductos.filter(
     (p) =>
       p.estado !== 'oculto' &&
+      p.estado !== 'pausado' &&
       String(p.id_producto) !== String(producto.id_producto) &&
       p.categoria === producto.categoria
   );
@@ -991,7 +985,7 @@ export default function ProductDetail() {
                 </p>
               </div>
             </div>
-            {esAdmin && (
+            {esAdmin && !esVendedorDueno && (
               <button
                 type="button"
                 onClick={handleRestaurarPublicacionAdmin}
@@ -1004,6 +998,7 @@ export default function ProductDetail() {
           </div>
         )}
 
+        {/* Solo muestra el botón de Bajar/Ocultar si es Admin Y NO es el dueño de la publicación */}
         {esAdmin && !esVendedorDueno && producto.estado !== 'oculto' && (
           <div className="bg-slate-900 text-white rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
             <div className="flex items-center gap-2.5">
@@ -1028,7 +1023,7 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {/* 1. BLOQUE PRINCIPAL*/}
+        {/* 1. BLOQUE PRINCIPAL */}
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 sm:p-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
@@ -1121,6 +1116,7 @@ export default function ProductDetail() {
                 </p>
 
                 <SobreEsteArticulo descripcion={producto.descripcion} />
+
                 {mensajeCompra && (
                   <div className="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 rounded-xl text-xs font-semibold flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
@@ -1168,7 +1164,6 @@ export default function ProductDetail() {
                       : 'Agregar al carrito (Avisarme cuando haya stock)'}
                   </button>
 
-                  {/* Botón para Reportar Publicación (Bloqueado para el propio vendedor) */}
                   <div className="pt-2 text-center">
                     <button
                       type="button"
@@ -1377,7 +1372,7 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {/* 4. PREGUNTAS Y RESPUESTAS*/}
+        {/* 4. PREGUNTAS Y RESPUESTAS */}
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 sm:p-8">
           <div className="flex items-center gap-2 mb-6">
             <MessageCircleQuestion className="w-6 h-6 text-blue-900" />
@@ -1388,7 +1383,7 @@ export default function ProductDetail() {
 
           {esVendedorDueno ? (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6 text-xs text-slate-600">
-              Sos el vendedor de este producto. No podés realizar preguntas en tu propia publicación, pero desde acá podés responder las consultas de los interesados.
+              Sos el vendedor de este producto. No podés realizar preguntas en tu propia publicación, pero desde acá podés responder las consultas de los interesados en tiempo real.
             </div>
           ) : (
             <form onSubmit={handleEnviarPregunta} className="flex flex-col sm:flex-row gap-3 mb-8">
@@ -1433,7 +1428,6 @@ export default function ProductDetail() {
                       <div className="flex items-center gap-3">
                         <span>{preg.fecha}</span>
 
-                        {/* Si es MI pregunta y está dentro de las 4 horas: Botón Eliminar */}
                         {puedeBorrarPregunta && (
                           <button
                             type="button"
@@ -1447,7 +1441,6 @@ export default function ProductDetail() {
                           </button>
                         )}
 
-                        {/* Si NO es mi pregunta: Botón Reportar pregunta */}
                         {!esMiPregunta && (
                           <button
                             type="button"
@@ -1514,7 +1507,7 @@ export default function ProductDetail() {
           )}
         </div>
 
-        {/* 5. OPINIONES DEL PRODUCTO*/}
+        {/* 5. OPINIONES DEL PRODUCTO */}
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 sm:p-8">
           <h2 className="text-xl sm:text-2xl font-normal text-slate-900 mb-6">
             Opiniones del producto
@@ -1720,7 +1713,6 @@ export default function ProductDetail() {
                         <span>Es útil ({op.likes})</span>
                       </button>
 
-                      {/* Si es MI opinión: NO puedo reportarla; si está en las primeras 4 horas puedo eliminarla */}
                       {esMiOpinion ? (
                         puedeBorrarOpinion ? (
                           <button
@@ -1767,7 +1759,7 @@ export default function ProductDetail() {
         </div>
       </main>
 
-      {/* MODAL PARA REPORTAR PRODUCTO (4 Razones + "Otro" + Descripción) */}
+      {/* MODAL PARA REPORTAR PRODUCTO */}
       {modalReportarProducto && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
@@ -1845,7 +1837,7 @@ export default function ProductDetail() {
         </div>
       )}
 
-      {/* MODAL PARA REPORTAR PREGUNTA U OPINIÓN AJENA */}
+      {/* MODAL PARA REPORTAR PREGUNTA U OPINIÓN */}
       {objetivoReporte !== null && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
@@ -1919,7 +1911,7 @@ export default function ProductDetail() {
         </div>
       )}
 
-      {/* MODAL DE EDICIÓN DE PUBLICACIÓN CON GESTIÓN DE FOTOS */}
+      {/* MODAL DE EDICIÓN DE PUBLICACIÓN */}
       {modoEdicion && esVendedorDueno && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 my-8 max-h-[90vh] overflow-y-auto">
@@ -2174,10 +2166,10 @@ export default function ProductDetail() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Descripción
+                  Sobre este artículo (Un punto por renglón)
                 </label>
                 <textarea
-                  rows={3}
+                  rows={4}
                   value={editDescripcion}
                   onChange={(e) => setEditDescripcion(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none"
@@ -2205,7 +2197,7 @@ export default function ProductDetail() {
       )}
 
       {/* MODAL PARA BAJAR PUBLICACIÓN (ADMIN) */}
-      {modalBajaAdmin && esAdmin && (
+      {modalBajaAdmin && esAdmin && !esVendedorDueno && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between mb-4">
