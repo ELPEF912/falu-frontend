@@ -61,7 +61,8 @@ export interface LogAuditoria {
   snapshot?: any;
 }
 
-const EMAIL_UNICO_SUPERADMIN = 'papumore2016@gmail.com';
+// PONÉ ACÁ TU CORREO EXACTO PARA QUE SOLO TU CUENTA SEA SUPER ADMIN:
+const EMAIL_UNICO_SUPERADMIN = 'tu_correo_principal@gmail.com';
 
 function esCuentaSuperAdminOficial(user: any): boolean {
   if (!user) return false;
@@ -82,7 +83,6 @@ export function sincronizarUsuarioEnSistema(user: any) {
 
   const esSuper = esCuentaSuperAdminOficial(user);
 
-  // Limpia cualquier cuenta que haya quedado como 'superadmin' por error en este navegador
   const listaCorregida = lista.map((u) => {
     const coincideUsuario =
       Number(u.id_usuario) === Number(user.id_usuario) ||
@@ -125,29 +125,6 @@ export function sincronizarUsuarioEnSistema(user: any) {
   localStorage.setItem('falu_usuarios_sistema', JSON.stringify(listaCorregida));
 }
 
-export function obtenerRolUsuario(user: any): RolSistema {
-  if (!user) return 'usuario';
-
-  if (esCuentaSuperAdminOficial(user)) {
-    return 'superadmin';
-  }
-
-  const listaUsuarios: UsuarioRegistradoAdmin[] = JSON.parse(
-    localStorage.getItem('falu_usuarios_sistema') || '[]'
-  );
-
-  const encontrado = listaUsuarios.find(
-    (u) =>
-      Number(u.id_usuario) === Number(user.id_usuario) ||
-      u.email?.toLowerCase() === user.email?.toLowerCase()
-  );
-
-  if (encontrado && encontrado.rol === 'admin') {
-    return 'admin';
-  }
-
-  return 'usuario';
-}
 export function obtenerEstadoDisciplinarioUsuario(
   idUsuario?: number,
   email?: string
@@ -212,6 +189,30 @@ export function obtenerEstadoDisciplinarioUsuario(
     avisos,
     ultimo_motivo: ultimoMotivo
   };
+}
+
+export function obtenerRolUsuario(user: any): RolSistema {
+  if (!user) return 'usuario';
+
+  if (esCuentaSuperAdminOficial(user)) {
+    return 'superadmin';
+  }
+
+  const listaUsuarios: UsuarioRegistradoAdmin[] = JSON.parse(
+    localStorage.getItem('falu_usuarios_sistema') || '[]'
+  );
+
+  const encontrado = listaUsuarios.find(
+    (u) =>
+      Number(u.id_usuario) === Number(user.id_usuario) ||
+      u.email?.toLowerCase() === user.email?.toLowerCase()
+  );
+
+  if (encontrado && encontrado.rol === 'admin') {
+    return 'admin';
+  }
+
+  return 'usuario';
 }
 
 export function esUsuarioAdminOSuperAdmin(user: any): boolean {
@@ -354,67 +355,7 @@ export default function AdminPanel() {
     const guardadosUsuarios: UsuarioRegistradoAdmin[] = JSON.parse(
       localStorage.getItem('falu_usuarios_sistema') || '[]'
     );
-    const mapaUsuarios = new Map<string, UsuarioRegistradoAdmin>();
-
-    guardadosUsuarios.forEach((u) => {
-      mapaUsuarios.set(String(u.id_usuario), {
-        ...u,
-        avisos: u.avisos || 0,
-        historial_sanciones: u.historial_sanciones || []
-      });
-    });
-
-    prods.forEach((p: any) => {
-      if (p.id_vendedor && !mapaUsuarios.has(String(p.id_vendedor))) {
-        mapaUsuarios.set(String(p.id_vendedor), {
-          id_usuario: Number(p.id_vendedor),
-          nombre: p.vendedor_nombre || `Usuario #${p.id_vendedor}`,
-          apellido: '',
-          email: `usuario${p.id_vendedor}@falu.com`,
-          rol: 'usuario',
-          estado_cuenta: 'activo',
-          avisos: 0,
-          historial_sanciones: []
-        });
-      }
-    });
-
-    todasPregs.forEach((pr: any) => {
-      if (pr.id_usuario && !mapaUsuarios.has(String(pr.id_usuario))) {
-        mapaUsuarios.set(String(pr.id_usuario), {
-          id_usuario: Number(pr.id_usuario),
-          nombre: pr.usuario_nombre || `Usuario #${pr.id_usuario}`,
-          apellido: '',
-          email: `usuario${pr.id_usuario}@falu.com`,
-          rol: 'usuario',
-          estado_cuenta: 'activo',
-          avisos: 0,
-          historial_sanciones: []
-        });
-      }
-    });
-
-    todasOpiniones.forEach((op: any) => {
-      if (op.id_comprador && !mapaUsuarios.has(String(op.id_comprador))) {
-        mapaUsuarios.set(String(op.id_comprador), {
-          id_usuario: Number(op.id_comprador),
-          nombre: op.comprador_nombre || `Usuario #${op.id_comprador}`,
-          apellido: '',
-          email: `usuario${op.id_comprador}@falu.com`,
-          rol: 'usuario',
-          estado_cuenta: 'activo',
-          avisos: 0,
-          historial_sanciones: []
-        });
-      }
-    });
-
-    const listaFinalUsuarios = Array.from(mapaUsuarios.values());
-    localStorage.setItem(
-      'falu_usuarios_sistema',
-      JSON.stringify(listaFinalUsuarios)
-    );
-    setUsuariosSistema(listaFinalUsuarios);
+    setUsuariosSistema(guardadosUsuarios);
   };
 
   useEffect(() => {
@@ -427,11 +368,15 @@ export default function AdminPanel() {
       return;
     }
     cargarTodoElPanel();
+
+    window.addEventListener('falu_actualizacion', cargarTodoElPanel);
+    window.addEventListener('storage', cargarTodoElPanel);
+    return () => {
+      window.removeEventListener('falu_actualizacion', cargarTodoElPanel);
+      window.removeEventListener('storage', cargarTodoElPanel);
+    };
   }, [isAuthenticated, user, navigate]);
 
-  // =========================================================================
-  // FUNCIÓN CENTRAL ANTI-CONFLICTO DE INTERESES (Impide auto-juzgarse)
-  // =========================================================================
   const evaluarConflictoDeInteres = (
     idAutorDenunciado?: number,
     nombreAutorDenunciado?: string
@@ -446,7 +391,6 @@ export default function AdminPanel() {
       Boolean(nombreAutorDenunciado) &&
       nombreAutorDenunciado!.trim().toLowerCase() === nombreActualLimpio;
 
-    // Regla 1: Ningún Admin ni Super Admin puede tomar ni resolver un reporte contra sí mismo
     if (soyElDenunciadoPorId || soyElDenunciadoPorNombre) {
       return {
         bloqueado: true,
@@ -455,7 +399,6 @@ export default function AdminPanel() {
       };
     }
 
-    // Regla 2: Un Admin normal no puede tomar ni resolver reportes contra un Super Admin
     const usuarioDenunciadoObj = usuariosSistema.find(
       (u) =>
         (idAutorDenunciado !== undefined &&
@@ -476,9 +419,6 @@ export default function AdminPanel() {
     return { bloqueado: false, motivoBloqueo: '' };
   };
 
-  // =========================================================================
-  // 1. GESTIÓN DE REPORTES DE PRODUCTOS
-  // =========================================================================
   const tomarReporteProducto = (idProducto: number) => {
     const prods = JSON.parse(localStorage.getItem('falu_productos_locales') || '[]');
     const target = prods.find((p: any) => String(p.id_producto) === String(idProducto));
@@ -564,9 +504,6 @@ export default function AdminPanel() {
     cargarTodoElPanel();
   };
 
-  // =========================================================================
-  // 2. GESTIÓN DE REPORTES DE PREGUNTAS
-  // =========================================================================
   const tomarReportePregunta = (idPregunta: number) => {
     const todas = JSON.parse(
       localStorage.getItem('falu_preguntas_productos') || '[]'
@@ -654,9 +591,6 @@ export default function AdminPanel() {
     cargarTodoElPanel();
   };
 
-  // =========================================================================
-  // 3. GESTIÓN DE REPORTES DE OPINIONES
-  // =========================================================================
   const tomarReporteOpinion = (idOpinion: number) => {
     const todas = JSON.parse(
       localStorage.getItem('falu_opiniones_productos') || '[]'
@@ -746,9 +680,6 @@ export default function AdminPanel() {
     cargarTodoElPanel();
   };
 
-  // =========================================================================
-  // 4. GESTIÓN DE REPORTES DE CHATS
-  // =========================================================================
   const tomarReporteChat = (idReporteChat: number) => {
     const todos = JSON.parse(
       localStorage.getItem('falu_reportes_chats_admin') || '[]'
@@ -831,9 +762,6 @@ export default function AdminPanel() {
     cargarTodoElPanel();
   };
 
-  // =========================================================================
-  // 5. SISTEMA DE AVISOS (1/3 a 3/3), SUSPENSIÓN POR DÍAS Y BANEO DEFINITIVO
-  // =========================================================================
   const handleAplicarMedidaDisciplinaria = (e: FormEvent) => {
     e.preventDefault();
     if (!usuarioASancionar || !motivoSancionInput.trim()) return;
@@ -962,17 +890,18 @@ export default function AdminPanel() {
     window.dispatchEvent(new Event('falu_actualizacion'));
   };
 
-  // =========================================================================
-  // 6. MODERACIÓN DIRECTA DE PUBLICACIONES Y ROLES (SUPER ADMIN)
-  // =========================================================================
   const cambiarEstadoPublicacion = (
     idProducto: number,
     nuevoEstado: 'activo' | 'oculto',
     motivo?: string
   ) => {
     const prods = JSON.parse(localStorage.getItem('falu_productos_locales') || '[]');
-    let prodModificado: any = null;
+    const target = prods.find((p: any) => String(p.id_producto) === String(idProducto));
+    if (user && target && Number(target.id_vendedor) === Number(user.id_usuario)) {
+      return;
+    }
 
+    let prodModificado: any = null;
     const actualizados = prods.map((p: any) => {
       if (String(p.id_producto) !== String(idProducto)) return p;
       prodModificado = {
@@ -1203,7 +1132,6 @@ export default function AdminPanel() {
 
       <main className="max-w-6xl w-full mx-auto px-4 py-8 flex-1">
         
-        {/* Encabezado */}
         <div className="mb-6 bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div
@@ -1270,7 +1198,6 @@ export default function AdminPanel() {
           )}
         </div>
 
-        {/* Pestañas */}
         <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-4 no-scrollbar">
           {pestanasAdmin.map((tab) => {
             const Icono = tab.icon;
@@ -1293,7 +1220,6 @@ export default function AdminPanel() {
           })}
         </div>
 
-        {/* Filtro de los 3 estados */}
         {['rep_productos', 'rep_preguntas', 'opiniones', 'chats'].includes(
           seccionActiva
         ) && (
@@ -1323,9 +1249,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 1: REPORTES DE PRODUCTOS (Con Bloqueo de Conflicto de Intereses)
-           ===================================================================== */}
+        {/* PESTAÑA 1: REPORTES DE PRODUCTOS */}
         {seccionActiva === 'rep_productos' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-2xs">
             <div>
@@ -1502,9 +1426,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 2: REPORTES DE PREGUNTAS (Con Bloqueo de Conflicto de Intereses)
-           ===================================================================== */}
+        {/* PESTAÑA 2: REPORTES DE PREGUNTAS */}
         {seccionActiva === 'rep_preguntas' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-2xs">
             <div>
@@ -1630,9 +1552,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 3: REPORTES DE OPINIONES (Con Bloqueo de Conflicto de Intereses)
-           ===================================================================== */}
+        {/* PESTAÑA 3: REPORTES DE OPINIONES */}
         {seccionActiva === 'opiniones' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-2xs">
             <div>
@@ -1783,9 +1703,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 4: REPORTES DE CHATS (Con Bloqueo de Conflicto de Intereses)
-           ===================================================================== */}
+        {/* PESTAÑA 4: REPORTES DE CHATS */}
         {seccionActiva === 'chats' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-2xs">
             <div>
@@ -1944,9 +1862,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 5: AVISOS (HASTA 3) Y SANCIONES DE CUENTAS
-           ===================================================================== */}
+        {/* PESTAÑA 5: AVISOS Y SANCIONES DE CUENTAS */}
         {seccionActiva === 'sanciones' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5 shadow-2xs">
             <div>
@@ -2041,9 +1957,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 6: MODERACIÓN DE PUBLICACIONES
-           ===================================================================== */}
+        {/* PESTAÑA 6: MODERACIÓN DE PUBLICACIONES (CON BLOQUEO EN PUBLICACIONES PROPIAS YA ENVUELTO) */}
         {seccionActiva === 'publicaciones' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5 shadow-2xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2052,7 +1966,7 @@ export default function AdminPanel() {
                   Control y Moderación de Publicaciones
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Bajar, ocultar o restaurar cualquier publicación del marketplace
+                  Bajar, ocultar o restaurar publicaciones de otros usuarios en el marketplace
                 </p>
               </div>
 
@@ -2076,8 +1990,10 @@ export default function AdminPanel() {
               <div className="space-y-3">
                 {productosFiltrados.map((prod) => {
                   const estaOculto = prod.estado === 'oculto';
-                  const esMiPropioProducto =
-                    Boolean(user && Number(prod.id_vendedor) === Number(user.id_usuario));
+                  const esMiPropioProducto = Boolean(
+                    user && Number(prod.id_vendedor) === Number(user.id_usuario)
+                  );
+
                   return (
                     <div
                       key={prod.id_producto}
@@ -2130,46 +2046,54 @@ export default function AdminPanel() {
                           Ir a la publicación
                         </Link>
 
-                        {estaOculto ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarEstadoPublicacion(prod.id_producto, 'activo')
-                            }
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            Restaurar
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarEstadoPublicacion(
-                                prod.id_producto,
-                                'oculto',
-                                'Incumplimiento de normas detectado por Administración'
-                              )
-                            }
-                            className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1"
-                          >
-                            <EyeOff className="w-3.5 h-3.5" />
-                            Bajar / Ocultar
-                          </button>
-                        )}
+                        {!esMiPropioProducto ? (
+                          <>
+                            {estaOculto ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  cambiarEstadoPublicacion(prod.id_producto, 'activo')
+                                }
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                Restaurar
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  cambiarEstadoPublicacion(
+                                    prod.id_producto,
+                                    'oculto',
+                                    'Incumplimiento de normas detectado por Administración'
+                                  )
+                                }
+                                className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1"
+                              >
+                                <EyeOff className="w-3.5 h-3.5" />
+                                Bajar / Ocultar
+                              </button>
+                            )}
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            eliminarPublicacionDefinitivamente(
-                              prod.id_producto,
-                              prod.titulo
-                            )
-                          }
-                          className="p-2 rounded-xl border border-slate-200 text-slate-400 hover:text-red-600"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                eliminarPublicacionDefinitivamente(
+                                  prod.id_producto,
+                                  prod.titulo
+                                )
+                              }
+                              className="p-2 rounded-xl border border-slate-200 text-slate-400 hover:text-red-600"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[11px] font-bold text-slate-400 italic px-2">
+                            Tu publicación (Gestionar en Mis Productos)
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -2179,9 +2103,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 7: AUDITORÍA INTERACTIVA
-           ===================================================================== */}
+        {/* PESTAÑA 7: AUDITORÍA INTERACTIVA */}
         {seccionActiva === 'auditoria' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-2xs">
             <div>
@@ -2234,9 +2156,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* =====================================================================
-            PESTAÑA 8: GESTIÓN DE ADMINISTRADORES (EXCLUSIVO SUPER ADMIN)
-           ===================================================================== */}
+        {/* PESTAÑA 8: GESTIÓN DE ADMINISTRADORES */}
         {seccionActiva === 'roles' && esSuperAdminActivo && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs">
@@ -2277,7 +2197,6 @@ export default function AdminPanel() {
                 >
                   <option value="admin">Rol: Administrador</option>
                   <option value="usuario">Rol: Usuario estándar</option>
-                  <option value="superadmin">Rol: Super Admin</option>
                 </select>
                 <button
                   type="submit"
@@ -2344,7 +2263,6 @@ export default function AdminPanel() {
         )}
       </main>
 
-      {/* MODAL PARA APLICAR AVISO (1/3 a 3/3), SUSPENSIÓN POR DÍAS O BANEO */}
       {usuarioASancionar && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
