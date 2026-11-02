@@ -504,7 +504,7 @@ export default function ProductDetail() {
 
   const handleConfirmarBajaAdmin = async (e: FormEvent) => {
     e.preventDefault();
-    if (!producto || !esAdmin) return;
+    if (!producto || !esAdmin || esVendedorDueno) return;
 
     const actualizado: ProductoDetalle = {
       ...producto,
@@ -1004,7 +1004,7 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {esAdmin && producto.estado !== 'oculto' && (
+        {esAdmin && !esVendedorDueno && producto.estado !== 'oculto' && (
           <div className="bg-slate-900 text-white rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
             <div className="flex items-center gap-2.5">
               <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0" />
