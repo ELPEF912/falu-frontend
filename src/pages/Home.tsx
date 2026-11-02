@@ -50,19 +50,27 @@ export default function Home() {
       );
       try {
         const res = await api.get('/products');
-        const remotos = Array.isArray(res.data) ? res.data : [];
-        const idsLocales = new Set(locales.map((p) => String(p.id_producto)));
-        const remotosSinDuplicar = remotos.filter(
-          (r: Producto) => !idsLocales.has(String(r.id_producto))
+        const remotos: Producto[] = Array.isArray(res.data) ? res.data : [];
+        const idsRemotos = new Set(remotos.map((r) => String(r.id_producto)));
+        const localesNoSubidos = locales.filter(
+          (l) => !idsRemotos.has(String(l.id_producto))
         );
-        setProductos([...locales, ...remotosSinDuplicar]);
+        for (const loc of localesNoSubidos) {
+          try {
+            await api.post('/products', loc);
+          } catch {
+          }
+        }
+
+        const listaUnificada = [...remotos, ...localesNoSubidos];
+        localStorage.setItem('falu_productos_locales', JSON.stringify(listaUnificada));
+        setProductos(listaUnificada);
       } catch {
         setProductos(locales);
       } finally {
         setCargandoProductos(false);
       }
     };
-
     obtenerProductos();
   }, []);
 
