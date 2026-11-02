@@ -24,7 +24,6 @@ export default function Carrito() {
   const {
     carrito,
     cambiarCantidad,
-    sincronizarStockRealCarrito,
     quitarDelCarrito,
     vaciarCarrito,
     totalItems,
@@ -33,33 +32,59 @@ export default function Carrito() {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [compraExitosa, setCompraExitosa] = useState(false);
+  const [stockRealMapa, setStockRealMapa] = useState<Record<number, number>>({});
+
+  // Consulta el stock real actual desde Neon PostgreSQL cada vez que se abre o actualiza el carrito
+  const consultarStockActualizado = async () => {
+    try {
+      const res = await api.get('/products');
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        localStorage.setItem('falu_productos_locales', JSON.stringify(res.data));
+        const mapa: Record<number, number> = {};
+        res.data.forEach((p: any) => {
+          mapa[Number(p.id_producto)] = Math.max(0, Number(p.stock ?? 0));
+        });
+        setStockRealMapa(mapa);
+        return;
+      }
+    } catch {
+      // Fallback a copia sincronizada
+    }
+
+    const locales = JSON.parse(
+      localStorage.getItem('falu_productos_locales') || '[]'
+    );
+    const mapaLocal: Record<number, number> = {};
+    locales.forEach((p: any) => {
+      mapaLocal[Number(p.id_producto)] = Math.max(0, Number(p.stock ?? 0));
+    });
+    setStockRealMapa(mapaLocal);
+  };
 
   useEffect(() => {
-    const verificarStockEnVivo = async () => {
-      try {
-        const res = await api.get('/products');
-        if (Array.isArray(res.data) && res.data.length > 0) {
-          localStorage.setItem('falu_productos_locales', JSON.stringify(res.data));
-          sincronizarStockRealCarrito(res.data);
-          return;
-        }
-      } catch {
-        // Fallback local si no hay red
-      }
-      const locales = JSON.parse(
-        localStorage.getItem('falu_productos_locales') || '[]'
-      );
-      sincronizarStockRealCarrito(locales);
+    consultarStockActualizado();
+    window.addEventListener('falu_actualizacion', consultarStockActualizado);
+    return () => {
+      window.removeEventListener('falu_actualizacion', consultarStockActualizado);
     };
-
-    verificarStockEnVivo();
   }, []);
 
-  // Detecta productos sin stock (0) y productos cuya cantidad en carrito supera el stock real actual
-  const productosSinStock = carrito.filter((item) => Number(item.stock) <= 0);
-  const productosConExcesoDeStock = carrito.filter(
-    (item) => Number(item.stock) > 0 && item.cantidad > Number(item.stock)
+  const obtenerStockRealItem = (item: any): number => {
+    const idNum = Number(item.id_producto);
+    if (stockRealMapa[idNum] !== undefined) {
+      return stockRealMapa[idNum];
+    }
+    return Math.max(0, Number(item.stock ?? 0));
+  };
+
+  const productosSinStock = carrito.filter(
+    (item) => obtenerStockRealItem(item) <= 0
   );
+  const productosConExcesoDeStock = carrito.filter((item) => {
+    const stockReal = obtenerStockRealItem(item);
+    return stockReal > 0 && item.cantidad > stockReal;
+  });
+
   const haySinStockEnCarrito = productosSinStock.length > 0;
   const hayExcesoDeStockEnCarrito = productosConExcesoDeStock.length > 0;
 
@@ -123,10 +148,10 @@ export default function Carrito() {
         (c) => String(c.id_producto) === String(prod.id_producto)
       );
       if (!itemComprado) return prod;
-      const nuevoStock = Math.max(0, Number(prod.stock) - itemComprado.cantidad);
+      const stockBase = obtenerStockRealItem(prod);
+      const nuevoStock = Math.max(0, stockBase - itemComprado.cantidad);
       const prodModificado = { ...prod, stock: nuevoStock };
 
-      // Actualizar también el stock en Neon PostgreSQL
       api.put(`/products/${prod.id_producto}`, prodModificado).catch(() => {});
       return prodModificado;
     });
@@ -187,34 +212,32 @@ export default function Carrito() {
           </div>
         )}
 
-        {/* AVISO CUANDO EL STOCK REAL BAJÓ Y NO ALCANZA PARA LA CANTIDAD DEL CARRITO */}
         {hayExcesoDeStockEnCarrito && (
           <div className="mb-6 bg-red-50 border-2 border-red-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-red-900">
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
               <div className="text-xs leading-relaxed">
                 <strong className="block text-sm font-extrabold mb-0.5">
-                  Stock insuficiente en uno o más productos de tu carrito
+                  No hay suficiente stock para cubrir las unidades de tu carrito
                 </strong>
-                El stock disponible de algunos artículos disminuyó desde que los agregaste y ya no alcanza para cubrir la cantidad que pediste. Ajustá las cantidades al máximo disponible para poder continuar con la compra.
+                El stock real disponible bajó desde que agregaste el producto. Ajustá la cantidad al stock disponible actual para continuar.
               </div>
             </div>
             <button
               type="button"
               onClick={() => {
                 productosConExcesoDeStock.forEach((item) => {
-                  cambiarCantidad(item.id_producto, Number(item.stock));
+                  cambiarCantidad(item.id_producto, obtenerStockRealItem(item));
                 });
               }}
               className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-1.5 shrink-0 transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              Ajustar todo al stock real
+              Ajustar al stock real
             </button>
           </div>
         )}
 
-        {/* AVISO CUANDO UN PRODUCTO QUEDÓ EN STOCK 0 */}
         {haySinStockEnCarrito && (
           <div className="mb-6 bg-amber-50 border border-amber-300 rounded-2xl p-4 flex items-start gap-3 text-amber-900">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -222,7 +245,7 @@ export default function Carrito() {
               <strong className="block font-extrabold mb-0.5">
                 Tenés productos sin stock disponible en tu carrito
               </strong>
-              Los productos agotados permanecen guardados con cantidad fija en <strong>1</strong> para enviarte una notificación en la campanita apenas el vendedor reponga unidades. Para pagar el resto de tu carrito ahora, quitá los artículos agotados.
+              Los productos agotados permanecen guardados con cantidad fija en <strong>1</strong> para enviarte una notificación apenas el vendedor reponga unidades. Para pagar el resto de tu carrito ahora, quitá los artículos agotados.
             </div>
           </div>
         )}
@@ -256,7 +279,7 @@ export default function Carrito() {
                     ? item.precio_oferta
                     : item.precio;
 
-                const stockMax = Math.max(0, Number(item.stock ?? 0));
+                const stockMax = obtenerStockRealItem(item);
                 const sinStock = stockMax === 0;
                 const superaStockReal = !sinStock && item.cantidad > stockMax;
 
@@ -308,7 +331,7 @@ export default function Carrito() {
                         ) : superaStockReal ? (
                           <div className="mt-1.5 flex flex-wrap items-center gap-2">
                             <span className="text-[11px] font-extrabold text-red-700 bg-red-100 border border-red-200 px-2.5 py-0.5 rounded-full">
-                              ¡Atención! Solo hay {stockMax} u. en stock (tenés {item.cantidad})
+                              ¡Sin stock suficiente! Solo quedan {stockMax} u. (tenés {item.cantidad})
                             </span>
                             <button
                               type="button"
@@ -320,7 +343,7 @@ export default function Carrito() {
                           </div>
                         ) : (
                           <span className="text-[11px] text-slate-400">
-                             ARS ${precioUnitario.toLocaleString('es-AR')} c/u — (Stock disponible: {stockMax})
+                            ARS ${precioUnitario.toLocaleString('es-AR')} c/u — (Stock real disponible: {stockMax})
                           </span>
                         )}
                       </div>
@@ -348,7 +371,10 @@ export default function Carrito() {
                           onChange={(e) => {
                             const val = parseInt(e.target.value, 10);
                             if (!isNaN(val)) {
-                              cambiarCantidad(item.id_producto, val);
+                              cambiarCantidad(
+                                item.id_producto,
+                                Math.min(val, stockMax)
+                              );
                             }
                           }}
                           className="w-12 text-center text-xs font-extrabold text-slate-900 bg-transparent focus:outline-none disabled:text-slate-400"
