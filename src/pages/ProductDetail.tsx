@@ -26,7 +26,6 @@ import {
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
-import SobreEsteArticulo from '../components/SobreEsteArticulo';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { verificarPerfilCompleto } from './Perfil';
@@ -147,6 +146,45 @@ const CATEGORIAS_EDITABLES = [
 ];
 
 const CUATRO_HORAS_MS = 4 * 60 * 60 * 1000;
+
+function SobreEsteArticulo({ descripcion }: { descripcion?: string }) {
+  const [expandido, setExpandido] = useState(false);
+  if (!descripcion || !descripcion.trim()) return null;
+
+  const puntos = descripcion
+    .split(/\n+/)
+    .map((l) => l.replace(/^[•\-*]\s*/, '').trim())
+    .filter((l) => l.length > 0);
+
+  if (puntos.length === 0) return null;
+  const requiereColapsar = puntos.length > 3 || descripcion.length > 380;
+  const puntosVisibles = requiereColapsar && !expandido ? puntos.slice(0, 3) : puntos;
+
+  return (
+    <div className="mt-5 pt-5 border-t border-slate-200">
+      <h2 className="text-base font-extrabold text-slate-950 mb-3">
+        Sobre este artículo
+      </h2>
+      <ul className="space-y-2 text-xs sm:text-[13px] text-slate-800 leading-relaxed">
+        {puntosVisibles.map((punto, idx) => (
+          <li key={idx} className="flex items-start gap-2">
+            <span className="text-slate-950 font-black">•</span>
+            <span>{punto}</span>
+          </li>
+        ))}
+      </ul>
+      {requiereColapsar && (
+        <button
+          type="button"
+          onClick={() => setExpandido(!expandido)}
+          className="mt-2 text-xs font-bold text-blue-600 hover:underline"
+        >
+          {expandido ? 'Mostrar menos' : 'Mostrar más'}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
