@@ -2076,6 +2076,8 @@ export default function AdminPanel() {
               <div className="space-y-3">
                 {productosFiltrados.map((prod) => {
                   const estaOculto = prod.estado === 'oculto';
+                  const esMiPropioProducto =
+                    Boolean(user && Number(prod.id_vendedor) === Number(user.id_usuario));
                   return (
                     <div
                       key={prod.id_producto}
