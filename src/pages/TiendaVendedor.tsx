@@ -22,7 +22,7 @@ interface ProductoVendedor {
   id_producto: number;
   id_vendedor?: number;
   vendedor_nombre?: string;
-  estado?: string;
+  estado?: 'activo' | 'pausado' | 'oculto';
   titulo: string;
   precio: number;
   precio_oferta?: number | null;

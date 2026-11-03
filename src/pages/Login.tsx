@@ -3,10 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, ShieldAlert } from 'lucide-react';
 import api from '../services/api';
 import { useAuth, decodificarTokenJWT } from '../context/AuthContext';
-import {
-  obtenerEstadoDisciplinarioUsuario,
-  sincronizarUsuarioEnSistema
-} from './AdminPanel';
+import { sincronizarUsuarioEnSistema } from './AdminPanel';
 
 export default function Login() {
   const [mostrarPassword, setMostrarPassword] = useState(false);
@@ -26,13 +23,6 @@ export default function Login() {
     setCargando(true);
 
     const emailLimpio = email.trim().toLowerCase();
-
-    const disciplinaPrevia = obtenerEstadoDisciplinarioUsuario(undefined, emailLimpio);
-    if (disciplinaPrevia.bloqueadoParaentrar) {
-      setDetalleSancion(disciplinaPrevia.mensajeBloqueo);
-      setCargando(false);
-      return;
-    }
 
     try {
       const response = await api.post('/auth/login', {
@@ -90,16 +80,6 @@ export default function Login() {
           ? [payloadJwt.rol]
           : []
       };
-
-      const disciplinaId = obtenerEstadoDisciplinarioUsuario(
-        usuarioNormalizado.id_usuario,
-        usuarioNormalizado.email
-      );
-      if (disciplinaId.bloqueadoParaentrar) {
-        setDetalleSancion(disciplinaId.mensajeBloqueo);
-        setCargando(false);
-        return;
-      }
 
       sincronizarUsuarioEnSistema(usuarioNormalizado);
       login(tokenRecibido, usuarioNormalizado);

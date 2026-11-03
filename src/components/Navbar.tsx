@@ -12,8 +12,7 @@ import {
   LogOut,
   Shield,
   Clock,
-  X,
-  MessageSquare
+  X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -43,14 +42,16 @@ export default function Navbar() {
   const [mostrarHistorial, setMostrarHistorial] = useState(false);
   const [ultimasBusquedas, setUltimasBusquedas] = useState<string[]>([]);
   const [menuCategoriasAbierto, setMenuCategoriasAbierto] = useState(false);
+  const [posicionMenuLeft, setPosicionMenuLeft] = useState(16);
 
   const [notificacionesNoLeidas, setNotificacionesNoLeidas] = useState(0);
-  const [mensajesNoLeidos, setMensajesNoLeidos] = useState(0);
   const [direccionPrincipalTexto, setDireccionPrincipalTexto] =
     useState('Argentina');
 
   const buscadorRef = useRef<HTMLDivElement>(null);
   const categoriasRef = useRef<HTMLDivElement>(null);
+  const botonCategoriasRef = useRef<HTMLButtonElement>(null);
+  const contenedorHeaderRef = useRef<HTMLDivElement>(null);
 
   const esAdmin = esUsuarioAdminOSuperAdmin(user);
   const rolActual = obtenerRolUsuario(user);
@@ -58,7 +59,6 @@ export default function Navbar() {
   const actualizarContadoresEnVivo = () => {
     if (!isAuthenticated || !user) {
       setNotificacionesNoLeidas(0);
-      setMensajesNoLeidos(0);
       setDireccionPrincipalTexto('Argentina');
       return;
     }
@@ -73,21 +73,7 @@ export default function Navbar() {
     ).length;
     setNotificacionesNoLeidas(misNoLeidas);
 
-    // 2. Contador de Mensajes de Chat no leídos
-    const conversaciones = JSON.parse(
-      localStorage.getItem('falu_conversaciones_chat') || '[]'
-    );
-    let totalMsgSinLeer = 0;
-    conversaciones.forEach((c: any) => {
-      if (Number(c.id_vendedor) === Number(user.id_usuario)) {
-        totalMsgSinLeer += Number(c.no_leidos_vendedor || 0);
-      } else if (Number(c.id_comprador) === Number(user.id_usuario)) {
-        totalMsgSinLeer += Number(c.no_leidos_comprador || 0);
-      }
-    });
-    setMensajesNoLeidos(totalMsgSinLeer);
-
-    // 3. Dirección principal del perfil
+    // 2. Dirección principal del perfil
     const perfiles = JSON.parse(
       localStorage.getItem('falu_perfiles_usuarios') || '{}'
     );
@@ -103,7 +89,7 @@ export default function Navbar() {
       setDireccionPrincipalTexto('Agregar dirección');
     }
 
-    // 4. Historial de búsqueda (últimas 5)
+    // 3. Historial de búsqueda (últimas 5)
     const claveHist = `falu_historial_busqueda_${user.id_usuario}`;
     const hist: string[] = JSON.parse(localStorage.getItem(claveHist) || '[]');
     setUltimasBusquedas(hist.slice(0, 5));
@@ -138,6 +124,16 @@ export default function Navbar() {
     return () =>
       document.removeEventListener('mousedown', cerrarMenusAlClickAfuera);
   }, []);
+
+  const toggleMenuCategorias = () => {
+    if (!menuCategoriasAbierto && botonCategoriasRef.current && contenedorHeaderRef.current) {
+      const rectBoton = botonCategoriasRef.current.getBoundingClientRect();
+      const rectHeader = contenedorHeaderRef.current.getBoundingClientRect();
+      const leftCalculado = Math.max(12, rectBoton.left - rectHeader.left);
+      setPosicionMenuLeft(leftCalculado);
+    }
+    setMenuCategoriasAbierto(!menuCategoriasAbierto);
+  };
 
   const guardarTerminoEnHistorial = (termino: string) => {
     const limpio = termino.trim();
@@ -177,31 +173,17 @@ export default function Navbar() {
     setUltimasBusquedas(filtrado.slice(0, 5));
   };
 
-  // Abre el widget de chat flotante del Footer al tocar "Mensajes" en el Header
-  const abrirChatDesdeHeader = () => {
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
-    const botonChatFlotante = document.querySelector(
-      '[data-falu-chat-trigger="true"]'
-    ) as HTMLButtonElement | null;
-    if (botonChatFlotante) {
-      botonChatFlotante.click();
-    } else {
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-    }
-  };
-
   const formatearTope99 = (cantidad: number) => {
     if (cantidad > 99) return '+99';
     return String(cantidad);
   };
 
   return (
-    <header className="bg-blue-900 text-white shadow-md sticky top-0 z-40 w-full max-w-full overflow-x-clip">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 pt-3 pb-2">
-        
+    <header className="bg-blue-900 text-white shadow-md sticky top-0 z-40 w-full">
+      <div
+        ref={contenedorHeaderRef}
+        className="max-w-7xl mx-auto px-3 sm:px-4 pt-3 pb-2 relative"
+      >
         {/* FILA SUPERIOR: LOGO + BUSCADOR */}
         <div className="flex items-center justify-between gap-2.5 sm:gap-6">
           <Link to="/" className="flex items-center gap-2 shrink-0 group">
@@ -275,191 +257,182 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* FILA INFERIOR: BARRA DESLIZABLE HORIZONTAL EN CELULAR (Sin desbordar la pantalla) */}
-        <div className="mt-2.5 pt-2 border-t border-blue-800/70 flex items-center justify-between gap-4 overflow-x-auto whitespace-nowrap pb-1.5 scrollbar-thin">
-          
-          {/* Izquierda: Ubicación + Categorías + Vender + Admin */}
-          <div className="flex items-center gap-3 sm:gap-5 shrink-0">
-            <button
-              type="button"
-              onClick={() => navigate(isAuthenticated ? '/perfil' : '/login')}
-              className="flex items-center gap-1.5 text-left hover:text-blue-200 transition-colors shrink-0"
-            >
-              <MapPin className="w-4 h-4 text-blue-300 shrink-0" />
-              <div className="leading-tight">
-                <span className="text-[10px] text-blue-200 block">
-                  {isAuthenticated ? `Enviar a ${user?.nombre}` : 'Modo Invitado'}
-                </span>
-                <span className="text-xs font-bold block max-w-28 truncate">
-                  {direccionPrincipalTexto}
-                </span>
-              </div>
-            </button>
-
-            <div ref={categoriasRef} className="relative shrink-0">
+        {/* FILA INFERIOR: BARRA NAVEGACIÓN (Deslizable en celular, fija en PC) */}
+        <div ref={categoriasRef}>
+          <div className="mt-2.5 pt-2 border-t border-blue-800/70 flex items-center justify-between gap-4 overflow-x-auto lg:overflow-visible whitespace-nowrap pb-1">
+            
+            {/* Izquierda: Ubicación + Categorías + Vender + Admin */}
+            <div className="flex items-center gap-3 sm:gap-5 shrink-0">
               <button
                 type="button"
-                onClick={() => setMenuCategoriasAbierto(!menuCategoriasAbierto)}
-                className="flex items-center gap-1 text-xs font-semibold hover:text-blue-200 py-1"
+                onClick={() => navigate(isAuthenticated ? '/perfil' : '/login')}
+                className="flex items-center gap-1.5 text-left hover:text-blue-200 transition-colors shrink-0"
               >
-                <span>Categorías</span>
-                <ChevronDown className="w-3.5 h-3.5" />
+                <MapPin className="w-4 h-4 text-blue-300 shrink-0" />
+                <div className="leading-tight">
+                  <span className="text-[10px] text-blue-200 block">
+                    {isAuthenticated ? `Enviar a ${user?.nombre}` : 'Modo Invitado'}
+                  </span>
+                  <span className="text-xs font-bold block max-w-28 truncate">
+                    {direccionPrincipalTexto}
+                  </span>
+                </div>
               </button>
 
-              {menuCategoriasAbierto && (
-                <div className="fixed sm:absolute left-3 sm:left-0 top-28 sm:top-full mt-1 w-56 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-200 py-2 z-50">
-                  {CATEGORIAS_FALU.map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => {
-                        setMenuCategoriasAbierto(false);
-                        navigate(
-                          cat === 'Todas'
-                            ? '/'
-                            : `/?categoria=${encodeURIComponent(cat)}`
-                        );
-                      }}
-                      className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
+              <button
+                ref={botonCategoriasRef}
+                type="button"
+                onClick={toggleMenuCategorias}
+                className="flex items-center gap-1 text-xs font-semibold hover:text-blue-200 py-1 shrink-0"
+              >
+                <span>Categorías</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform ${
+                    menuCategoriasAbierto ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              <Link
+                to={isAuthenticated ? '/vender' : '/login'}
+                className="text-xs font-semibold hover:text-blue-200 transition-colors shrink-0"
+              >
+                Vender
+              </Link>
+
+              {esAdmin && (
+                <Link
+                  to="/admin"
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold shrink-0 transition-transform hover:scale-105 ${
+                    rolActual === 'superadmin'
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'bg-blue-600 text-white border border-blue-400'
+                  }`}
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>
+                    {rolActual === 'superadmin' ? 'Super Admin' : 'Panel Admin'}
+                  </span>
+                </Link>
               )}
             </div>
 
-            <Link
-              to={isAuthenticated ? '/vender' : '/login'}
-              className="text-xs font-semibold hover:text-blue-200 transition-colors shrink-0"
-            >
-              Vender
-            </Link>
+            {/* Derecha: Usuario + Mis Productos + Mis Compras + Favoritos + Notificaciones + Carrito */}
+            <div className="flex items-center gap-3.5 sm:gap-4 text-xs font-semibold shrink-0">
+              {isAuthenticated && user ? (
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link
+                    to="/perfil"
+                    className="inline-flex items-center gap-1.5 bg-blue-800/80 hover:bg-blue-800 px-3 py-1.5 rounded-full text-white font-bold transition-colors"
+                  >
+                    <UserIcon className="w-3.5 h-3.5 text-blue-200" />
+                    <span className="max-w-28 truncate">{user.nombre}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      logout();
+                      navigate('/');
+                    }}
+                    title="Cerrar sesión"
+                    className="p-1.5 rounded-full bg-blue-800/50 hover:bg-red-600 text-blue-100 hover:text-white transition-colors"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <Link to="/register" className="hover:text-blue-200">
+                    Creá tu cuenta
+                  </Link>
+                  <Link
+                    to="/login"
+                    className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-1.5 rounded-full transition-colors"
+                  >
+                    Ingresá
+                  </Link>
+                </div>
+              )}
 
-            {esAdmin && (
               <Link
-                to="/admin"
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold shrink-0 transition-transform hover:scale-105 ${
-                  rolActual === 'superadmin'
-                    ? 'bg-amber-400 text-slate-950'
-                    : 'bg-blue-600 text-white border border-blue-400'
-                }`}
+                to={isAuthenticated ? '/mis-productos' : '/login'}
+                className="hover:text-blue-200 shrink-0"
               >
-                <Shield className="w-3.5 h-3.5" />
-                <span>
-                  {rolActual === 'superadmin' ? 'Super Admin' : 'Panel Admin'}
-                </span>
+                Mis productos
               </Link>
-            )}
+
+              <Link
+                to={isAuthenticated ? '/mis-compras' : '/login'}
+                className="hover:text-blue-200 shrink-0"
+              >
+                Mis compras
+              </Link>
+
+              <Link
+                to={isAuthenticated ? '/favoritos' : '/login'}
+                className="inline-flex items-center gap-1 hover:text-blue-200 shrink-0"
+              >
+                <span>Favoritos</span>
+                <Heart className="w-3.5 h-3.5" />
+              </Link>
+
+              {/* Campanita de Notificaciones */}
+              <Link
+                to={isAuthenticated ? '/notificaciones' : '/login'}
+                title="Notificaciones"
+                className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
+              >
+                <Bell className="w-4 h-4" />
+                {notificacionesNoLeidas > 0 && (
+                  <span className="bg-red-600 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
+                    {formatearTope99(notificacionesNoLeidas)}
+                  </span>
+                )}
+              </Link>
+
+              {/* Carrito */}
+              <Link
+                to="/carrito"
+                title="Carrito de compras"
+                className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                {totalItems > 0 && (
+                  <span className="bg-amber-400 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
+                    {formatearTope99(totalItems)}
+                  </span>
+                )}
+              </Link>
+            </div>
           </div>
 
-          {/* Derecha: Usuario + Mis Productos + Mis Compras + Favoritos + Mensajes + Notificaciones + Carrito */}
-          <div className="flex items-center gap-3.5 sm:gap-4 text-xs font-semibold shrink-0">
-            {isAuthenticated && user ? (
-              <div className="flex items-center gap-2 shrink-0">
-                <Link
-                  to="/perfil"
-                  className="inline-flex items-center gap-1.5 bg-blue-800/80 hover:bg-blue-800 px-3 py-1.5 rounded-full text-white font-bold transition-colors"
-                >
-                  <UserIcon className="w-3.5 h-3.5 text-blue-200" />
-                  <span className="max-w-28 truncate">{user.nombre}</span>
-                </Link>
+          {/* MENÚ DESPLEGABLE DE CATEGORÍAS (Fuera del scroll para que nunca se corte) */}
+          {menuCategoriasAbierto && (
+            <div
+              style={{ left: `${posicionMenuLeft}px` }}
+              className="absolute top-full mt-1 w-56 bg-white text-slate-800 rounded-xl shadow-2xl border border-slate-200 py-2 z-50"
+            >
+              {CATEGORIAS_FALU.map((cat) => (
                 <button
+                  key={cat}
                   type="button"
                   onClick={() => {
-                    logout();
-                    navigate('/');
+                    setMenuCategoriasAbierto(false);
+                    navigate(
+                      cat === 'Todas'
+                        ? '/'
+                        : `/?categoria=${encodeURIComponent(cat)}`
+                    );
                   }}
-                  title="Cerrar sesión"
-                  className="p-1.5 rounded-full bg-blue-800/50 hover:bg-red-600 text-blue-100 hover:text-white transition-colors"
+                  className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-blue-50 hover:text-blue-700 transition-colors"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  {cat}
                 </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2.5 shrink-0">
-                <Link to="/register" className="hover:text-blue-200">
-                  Creá tu cuenta
-                </Link>
-                <Link
-                  to="/login"
-                  className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-1.5 rounded-full transition-colors"
-                >
-                  Ingresá
-                </Link>
-              </div>
-            )}
-
-            <Link
-              to={isAuthenticated ? '/mis-productos' : '/login'}
-              className="hover:text-blue-200 shrink-0"
-            >
-              Mis productos
-            </Link>
-
-            <Link
-              to={isAuthenticated ? '/mis-compras' : '/login'}
-              className="hover:text-blue-200 shrink-0"
-            >
-              Mis compras
-            </Link>
-
-            <Link
-              to={isAuthenticated ? '/favoritos' : '/login'}
-              className="inline-flex items-center gap-1 hover:text-blue-200 shrink-0"
-            >
-              <span>Favoritos</span>
-              <Heart className="w-3.5 h-3.5" />
-            </Link>
-
-            {/* Botón directo de Mensajes / Chat en la barra para celular y PC */}
-            <button
-              type="button"
-              onClick={abrirChatDesdeHeader}
-              title="Mis mensajes"
-              className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span className="sm:hidden text-[11px]">Mensajes</span>
-              {mensajesNoLeidos > 0 && (
-                <span className=" -top-1 -right-1.5 bg-red-600 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
-                  {formatearTope99(mensajesNoLeidos)}
-                </span>
-              )}
-            </button>
-
-            {/* Campanita de Notificaciones en tiempo real */}
-            <Link
-              to={isAuthenticated ? '/notificaciones' : '/login'}
-              title="Notificaciones"
-              className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
-            >
-              <Bell className="w-4 h-4" />
-              <span className="sm:hidden text-[11px]">Alertas</span>
-              {notificacionesNoLeidas > 0 && (
-                <span className=" -top-1 -right-1.5 bg-red-600 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
-                  {formatearTope99(notificacionesNoLeidas)}
-                </span>
-              )}
-            </Link>
-
-            {/* Carrito */}
-            <Link
-              to="/carrito"
-              title="Carrito de compras"
-              className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
-            >
-              <ShoppingCart className="w-4 h-4" />
-              <span className="sm:hidden text-[11px]">Carrito</span>
-              {totalItems > 0 && (
-                <span className=" -top-1 -right-1.5 bg-amber-400 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
-                  {formatearTope99(totalItems)}
-                </span>
-              )}
-            </Link>
-          </div>
-
+              ))}
+            </div>
+          )}
         </div>
+
       </div>
     </header>
   );
