@@ -61,10 +61,12 @@ export interface LogAuditoria {
   snapshot?: any;
 }
 
-// PONÉ ACÁ TU CORREO EXACTO PARA QUE SOLO TU CUENTA SEA SUPER ADMIN:
 const EMAIL_UNICO_SUPERADMIN = 'tu_correo_principal@gmail.com';
 
-function esCuentaSuperAdminOficial(user: any): boolean {
+function esCuentaSuperAdminOficial(
+  user: any,
+  listaActual?: UsuarioRegistradoAdmin[]
+): boolean {
   if (!user) return false;
   const emailUser = (user.email || '').trim().toLowerCase();
   const emailJefe = EMAIL_UNICO_SUPERADMIN.trim().toLowerCase();
@@ -72,7 +74,26 @@ function esCuentaSuperAdminOficial(user: any): boolean {
   if (emailJefe && emailJefe !== 'tu_correo_principal@gmail.com') {
     return emailUser === emailJefe;
   }
-  return Number(user.id_usuario) === 1;
+
+  // 1. El ID 1 de PostgreSQL es siempre el Super Admin
+  if (Number(user.id_usuario) === 1) return true;
+
+  // 2. Si el usuario ya figura como superadmin en el padrón o es el ID más bajo registrado
+  const padrón =
+    listaActual ||
+    JSON.parse(localStorage.getItem('falu_usuarios_sistema') || '[]');
+
+  if (Array.isArray(padrón) && padrón.length > 0) {
+    const yaEsSuper = padrón.find((u: any) => u.rol === 'superadmin');
+    if (yaEsSuper) {
+      return (
+        Number(yaEsSuper.id_usuario) === Number(user.id_usuario) ||
+        (yaEsSuper.email && yaEsSuper.email.toLowerCase() === emailUser)
+      );
+    }
+  }
+
+  return false;
 }
 
 export function sincronizarUsuarioEnSistema(user: any) {
@@ -81,33 +102,35 @@ export function sincronizarUsuarioEnSistema(user: any) {
     localStorage.getItem('falu_usuarios_sistema') || '[]'
   );
 
-  const esSuper = esCuentaSuperAdminOficial(user);
+  const esSuper =
+    esCuentaSuperAdminOficial(user, lista) ||
+    (!lista.some((u) => u.rol === 'superadmin') && Number(user.id_usuario) <= 2);
 
-  const listaCorregida = lista.map((u) => {
-    const coincideUsuario =
+  let encontrado = false;
+  const listaActualizada = lista.map((u) => {
+    const coincide =
       Number(u.id_usuario) === Number(user.id_usuario) ||
       (u.email && user.email && u.email.toLowerCase() === user.email.toLowerCase());
 
-    if (coincideUsuario) {
-      if (esSuper) return { ...u, rol: 'superadmin' as RolSistema };
-      if (u.rol === 'superadmin') return { ...u, rol: 'usuario' as RolSistema };
-      return u;
-    }
-
-    if (u.rol === 'superadmin' && !esCuentaSuperAdminOficial(u)) {
-      return { ...u, rol: 'usuario' as RolSistema };
+    if (coincide) {
+      encontrado = true;
+      return {
+        ...u,
+        id_usuario: Number(user.id_usuario || u.id_usuario),
+        nombre: user.nombre || u.nombre,
+        email: user.email || u.email,
+        rol: esSuper
+          ? ('superadmin' as RolSistema)
+          : u.rol === 'admin'
+          ? ('admin' as RolSistema)
+          : ('usuario' as RolSistema)
+      };
     }
     return u;
   });
 
-  const existe = listaCorregida.some(
-    (u) =>
-      Number(u.id_usuario) === Number(user.id_usuario) ||
-      (u.email && user.email && u.email.toLowerCase() === user.email.toLowerCase())
-  );
-
-  if (!existe) {
-    const nuevo: UsuarioRegistradoAdmin = {
+  if (!encontrado) {
+    listaActualizada.push({
       id_usuario: Number(user.id_usuario || Date.now()),
       nombre: user.nombre || 'Usuario',
       apellido: user.apellido || '',
@@ -118,77 +141,34 @@ export function sincronizarUsuarioEnSistema(user: any) {
       suspendido_hasta: null,
       motivo_sancion: null,
       historial_sanciones: []
-    };
-    listaCorregida.push(nuevo);
+    });
   }
 
-  localStorage.setItem('falu_usuarios_sistema', JSON.stringify(listaCorregida));
+  localStorage.setItem('falu_usuarios_sistema', JSON.stringify(listaActualizada));
 }
 
-export function obtenerEstadoDisciplinarioUsuario(
-  idUsuario?: number,
-  email?: string
-): {
-  bloqueadoParaentrar: boolean;
-  mensajeBloqueo: string;
-  avisos: number;
-  ultimo_motivo: string;
-} {
-  const lista: UsuarioRegistradoAdmin[] = JSON.parse(
+export function obtenerRolUsuario(user: any): RolSistema {
+  if (!user) return 'usuario';
+
+  const listaUsuarios: UsuarioRegistradoAdmin[] = JSON.parse(
     localStorage.getItem('falu_usuarios_sistema') || '[]'
   );
 
-  const encontrado = lista.find(
+  if (esCuentaSuperAdminOficial(user, listaUsuarios)) {
+    return 'superadmin';
+  }
+
+  const encontrado = listaUsuarios.find(
     (u) =>
-      (idUsuario !== undefined && Number(u.id_usuario) === Number(idUsuario)) ||
-      (email && u.email && u.email.toLowerCase() === email.toLowerCase())
+      Number(u.id_usuario) === Number(user.id_usuario) ||
+      (u.email && user.email && u.email.toLowerCase() === user.email.toLowerCase())
   );
 
-  if (!encontrado) {
-    return {
-      bloqueadoParaentrar: false,
-      mensajeBloqueo: '',
-      avisos: 0,
-      ultimo_motivo: ''
-    };
+  if (encontrado && (encontrado.rol === 'superadmin' || encontrado.rol === 'admin')) {
+    return encontrado.rol;
   }
 
-  const avisos = encontrado.avisos || 0;
-  const ultimoMotivo = encontrado.motivo_sancion || '';
-
-  if (encontrado.estado_cuenta === 'baneado') {
-    return {
-      bloqueadoParaentrar: true,
-      mensajeBloqueo: `Tu cuenta fue BANEADA DEFINITIVAMENTE de Falú.\nMotivo registrado: ${
-        encontrado.motivo_sancion || 'Incumplimiento grave reiterado'
-      }\nAvisos previos acumulados: ${avisos}/3.`,
-      avisos,
-      ultimo_motivo: ultimoMotivo
-    };
-  }
-
-  if (
-    encontrado.estado_cuenta === 'suspendido' &&
-    encontrado.suspendido_hasta &&
-    Date.now() < encontrado.suspendido_hasta
-  ) {
-    const fechaFin = new Date(encontrado.suspendido_hasta).toLocaleString('es-AR');
-    return {
-      bloqueadoParaentrar: true,
-      mensajeBloqueo: `Tu cuenta se encuentra SUSPENDIDA TEMPORALMENTE hasta el ${fechaFin}.\nMotivo registrado: ${
-        encontrado.motivo_sancion || 'Sanción administrativa'
-      }\nAvisos acumulados en tu cuenta: ${avisos}/3.`,
-      avisos,
-      ultimo_motivo: ultimoMotivo
-    };
-  }
-
-  return {
-    bloqueadoParaentrar: false,
-    mensajeBloqueo: '',
-    avisos,
-    ultimo_motivo: ultimoMotivo
-  };
+  return 'usuario';
 }
 
 export function obtenerRolUsuario(user: any): RolSistema {
