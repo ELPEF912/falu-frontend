@@ -61,7 +61,7 @@ export interface LogAuditoria {
   snapshot?: any;
 }
 
-const EMAIL_UNICO_SUPERADMIN = 'tu_correo_principal@gmail.com';
+const EMAIL_UNICO_SUPERADMIN = 'papumore2016@gmail.com';
 
 function esCuentaSuperAdminOficial(
   user: any,
