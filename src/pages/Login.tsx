@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, ShieldAlert } from 'lucide-react';
 import api from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, decodificarTokenJWT } from '../context/AuthContext';
 import {
   obtenerEstadoDisciplinarioUsuario,
   sincronizarUsuarioEnSistema
@@ -25,8 +25,9 @@ export default function Login() {
     setDetalleSancion(null);
     setCargando(true);
 
-    // 1. Verificar sanciones por correo antes de loguear
-    const disciplinaPrevia = obtenerEstadoDisciplinarioUsuario(undefined, email);
+    const emailLimpio = email.trim().toLowerCase();
+
+    const disciplinaPrevia = obtenerEstadoDisciplinarioUsuario(undefined, emailLimpio);
     if (disciplinaPrevia.bloqueadoParaentrar) {
       setDetalleSancion(disciplinaPrevia.mensajeBloqueo);
       setCargando(false);
@@ -34,50 +35,62 @@ export default function Login() {
     }
 
     try {
-      const response = await api.post('/auth/login', { email, password });
+      const response = await api.post('/auth/login', {
+        email: emailLimpio,
+        password
+      });
       const data = response.data || {};
 
       const tokenRecibido =
         data.token || data.accessToken || data.jwt || 'token_activo';
-
-      // Soporta cualquier clave que devuelva el backend (usuario, user o datos en la raíz)
+      const payloadJwt = decodificarTokenJWT(tokenRecibido);
       const rawUser = data.usuario || data.user || data.data || data;
 
-      // Busco si ya teníamos el nombre de este usuario en el padrón local
       const padronLocal = JSON.parse(
         localStorage.getItem('falu_usuarios_sistema') || '[]'
       );
       const usuarioEnPadron = padronLocal.find(
-        (u: any) =>
-          u.email && u.email.toLowerCase() === email.trim().toLowerCase()
+        (u: any) => u.email && u.email.toLowerCase() === emailLimpio
+      );
+
+      // Obtiene el ID exacto de PostgreSQL desde el JWT o la respuesta
+      const idReal = Number(
+        payloadJwt?.id_usuario ??
+          payloadJwt?.id ??
+          payloadJwt?.userId ??
+          payloadJwt?.sub ??
+          rawUser?.id_usuario ??
+          rawUser?.id ??
+          usuarioEnPadron?.id_usuario ??
+          1
       );
 
       const usuarioNormalizado = {
-        id_usuario: Number(
-          rawUser?.id_usuario ??
-            rawUser?.id ??
-            usuarioEnPadron?.id_usuario ??
-            Date.now()
-        ),
+        id_usuario: isNaN(idReal) ? 1 : idReal,
         nombre:
           rawUser?.nombre ||
           rawUser?.name ||
+          payloadJwt?.nombre ||
           usuarioEnPadron?.nombre ||
-          email.trim().split('@')[0],
+          emailLimpio.split('@')[0],
         apellido:
           rawUser?.apellido ||
           rawUser?.lastname ||
+          payloadJwt?.apellido ||
           usuarioEnPadron?.apellido ||
           '',
-        email: rawUser?.email || email.trim(),
+        email: emailLimpio,
         roles: Array.isArray(rawUser?.roles)
           ? rawUser.roles
+          : Array.isArray(payloadJwt?.roles)
+          ? payloadJwt.roles
           : rawUser?.rol
           ? [rawUser.rol]
+          : payloadJwt?.rol
+          ? [payloadJwt.rol]
           : []
       };
 
-      // 2. Verificar si su ID tiene suspensión activa o baneo
       const disciplinaId = obtenerEstadoDisciplinarioUsuario(
         usuarioNormalizado.id_usuario,
         usuarioNormalizado.email
@@ -95,7 +108,7 @@ export default function Login() {
       setError(
         err.response?.data?.error ||
           err.response?.data?.mensaje ||
-          'Credenciales inválidas o servidor desconectado'
+          'Credenciales inválidas o servidor despertando (intentá de nuevo en 5 segundos)'
       );
     } finally {
       setCargando(false);
@@ -105,7 +118,6 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-10 border border-slate-100">
-        
         <div className="text-center mb-8">
           <div className="mx-auto h-16 w-16 bg-blue-900 rounded-full flex items-center justify-center shadow-md mb-5">
             <Lock className="h-8 w-8 text-white" />
@@ -204,7 +216,6 @@ export default function Login() {
             </Link>
           </p>
         </div>
-
       </div>
     </div>
   );
