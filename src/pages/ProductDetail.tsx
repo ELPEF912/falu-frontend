@@ -22,7 +22,9 @@ import {
   Plus,
   Trash2,
   Camera,
-  Clock
+  Clock,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -31,7 +33,11 @@ import { useCart } from '../context/CartContext';
 import { verificarPerfilCompleto } from './Perfil';
 import {
   registrarEventosPostCompra,
-  notificarReposicionStock
+  notificarReposicionStock,
+  notificarProductoSinStock,
+  notificarNuevaPregunta,
+  notificarRespuestaPregunta,
+  notificarNuevaOpinion
 } from './Notificaciones';
 import {
   esUsuarioAdminOSuperAdmin,
@@ -111,6 +117,116 @@ export interface ProductoDetalle {
   };
 }
 
+// Componente integrado "Sobre este artículo" con índices y mayúsculas imponentes
+function resaltarMayusculasImponentes(texto: string) {
+  const partes = texto.split(/([A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ0-9]{2,})*)/g);
+  return partes.map((parte, i) => {
+    const esMayusculaImponente =
+      /^[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ0-9]{2,})*$/.test(parte.trim());
+    if (esMayusculaImponente) {
+      return (
+        <span
+          key={i}
+          className="font-black text-slate-950 tracking-wide text-[13.5px] sm:text-[14.5px]"
+        >
+          {parte}
+        </span>
+      );
+    }
+    return <span key={i}>{parte}</span>;
+  });
+}
+
+function renderizarLineaIndice(linea: string) {
+  const limpia = linea.replace(/^[•\-*]\s*/, '').trim();
+  const posDosPuntos = limpia.indexOf(':');
+
+  if (posDosPuntos > 0 && posDosPuntos < 65) {
+    const encabezado = limpia.slice(0, posDosPuntos + 1);
+    const cuerpo = limpia.slice(posDosPuntos + 1);
+    const encabezadoTodoMayus =
+      encabezado === encabezado.toUpperCase() && /[A-ZÁÉÍÓÚÑ]/.test(encabezado);
+
+    return (
+      <>
+        <span
+          className={
+            encabezadoTodoMayus
+              ? 'font-black text-slate-950 tracking-wide text-[13.5px] sm:text-[14.5px]'
+              : 'font-bold text-slate-900'
+          }
+        >
+          {encabezado}
+        </span>
+        <span>{resaltarMayusculasImponentes(cuerpo)}</span>
+      </>
+    );
+  }
+
+  return resaltarMayusculasImponentes(limpia);
+}
+
+function SobreEsteArticulo({ descripcion }: { descripcion?: string }) {
+  const [expandido, setExpandido] = useState(false);
+  if (!descripcion || !descripcion.trim()) return null;
+
+  const puntos = descripcion
+    .split(/\n+/)
+    .map((l) => l.replace(/^[•\-*]\s*/, '').trim())
+    .filter((l) => l.length > 0);
+
+  if (puntos.length === 0) return null;
+
+  const requiereColapsar = puntos.length > 3 || descripcion.length > 380;
+  const puntosVisibles =
+    requiereColapsar && !expandido ? puntos.slice(0, 3) : puntos;
+
+  return (
+    <div className="mt-5 pt-5 border-t border-slate-200">
+      <h2 className="text-base font-extrabold text-slate-950 mb-3">
+        Sobre este artículo
+      </h2>
+
+      <div className="relative">
+        <ul className="space-y-2.5 text-xs sm:text-[13.5px] text-slate-800 leading-relaxed">
+          {puntosVisibles.map((punto, idx) => (
+            <li key={idx} className="flex items-start gap-2.5">
+              <span className="text-slate-950 font-black text-base leading-snug select-none">
+                •
+              </span>
+              <div className="flex-1">{renderizarLineaIndice(punto)}</div>
+            </li>
+          ))}
+        </ul>
+
+        {requiereColapsar && !expandido && (
+          <div className="h-6 bg-linear-to-t from-white to-transparent -mt-6 relative pointer-events-none" />
+        )}
+      </div>
+
+      {requiereColapsar && (
+        <button
+          type="button"
+          onClick={() => setExpandido(!expandido)}
+          className="mt-2 inline-flex items-center gap-1 text-xs sm:text-sm font-semibold text-blue-700 hover:text-blue-900 hover:underline transition-colors"
+        >
+          {expandido ? (
+            <>
+              <ChevronUp className="w-4 h-4 text-slate-700" />
+              <span>Mostrar menos</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-4 h-4 text-slate-700" />
+              <span>Mostrar más</span>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 const RAZONES_REPORTE_PRODUCTO = [
   'Producto prohibido o ilegal',
   'Publicación fraudulenta o estafa',
@@ -147,45 +263,6 @@ const CATEGORIAS_EDITABLES = [
 
 const CUATRO_HORAS_MS = 4 * 60 * 60 * 1000;
 
-function SobreEsteArticulo({ descripcion }: { descripcion?: string }) {
-  const [expandido, setExpandido] = useState(false);
-  if (!descripcion || !descripcion.trim()) return null;
-
-  const puntos = descripcion
-    .split(/\n+/)
-    .map((l) => l.replace(/^[•\-*]\s*/, '').trim())
-    .filter((l) => l.length > 0);
-
-  if (puntos.length === 0) return null;
-  const requiereColapsar = puntos.length > 3 || descripcion.length > 380;
-  const puntosVisibles = requiereColapsar && !expandido ? puntos.slice(0, 3) : puntos;
-
-  return (
-    <div className="mt-5 pt-5 border-t border-slate-200">
-      <h2 className="text-base font-extrabold text-slate-950 mb-3">
-        Sobre este artículo
-      </h2>
-      <ul className="space-y-2 text-xs sm:text-[13px] text-slate-800 leading-relaxed">
-        {puntosVisibles.map((punto, idx) => (
-          <li key={idx} className="flex items-start gap-2">
-            <span className="text-slate-950 font-black">•</span>
-            <span>{punto}</span>
-          </li>
-        ))}
-      </ul>
-      {requiereColapsar && (
-        <button
-          type="button"
-          onClick={() => setExpandido(!expandido)}
-          className="mt-2 text-xs font-bold text-blue-600 hover:underline"
-        >
-          {expandido ? 'Mostrar menos' : 'Mostrar más'}
-        </button>
-      )}
-    </div>
-  );
-}
-
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -219,7 +296,9 @@ export default function ProductDetail() {
 
   const [preguntas, setPreguntas] = useState<Pregunta[]>([]);
   const [nuevaPregunta, setNuevaPregunta] = useState('');
-  const [respuestasBorrador, setRespuestasBorrador] = useState<Record<number, string>>({});
+  const [respuestasBorrador, setRespuestasBorrador] = useState<
+    Record<number, string>
+  >({});
 
   const [opiniones, setOpiniones] = useState<Opinion[]>([]);
   const [estrellasSeleccionadas, setEstrellasSeleccionadas] = useState<number>(5);
@@ -240,7 +319,8 @@ export default function ProductDetail() {
   const [motivoSeleccionado, setMotivoSeleccionado] = useState<string>(
     MOTIVOS_REPORTE_INTERACCION[0]
   );
-  const [descripcionReporteInteraccion, setDescripcionReporteInteraccion] = useState('');
+  const [descripcionReporteInteraccion, setDescripcionReporteInteraccion] =
+    useState('');
   const [avisoReporte, setAvisoReporte] = useState('');
 
   const carruselRelacionadosRef = useRef<HTMLDivElement>(null);
@@ -268,7 +348,6 @@ export default function ProductDetail() {
     return `${horas}h ${minutos}m restantes`;
   };
 
-  // Función que recarga en tiempo real el stock, preguntas y opiniones cuando llega una actualización de la nube
   const sincronizarVistaDesdeStorage = () => {
     const guardadosLocal: ProductoDetalle[] = JSON.parse(
       localStorage.getItem('falu_productos_locales') || '[]'
@@ -283,9 +362,8 @@ export default function ProductDetail() {
     }
 
     if (user) {
-      const comprasGuardadas: { id_usuario: number; id_producto: number }[] = JSON.parse(
-        localStorage.getItem('falu_compras_usuarios') || '[]'
-      );
+      const comprasGuardadas: { id_usuario: number; id_producto: number }[] =
+        JSON.parse(localStorage.getItem('falu_compras_usuarios') || '[]');
       const compro = comprasGuardadas.some(
         (c) =>
           Number(c.id_usuario) === Number(user.id_usuario) &&
@@ -299,12 +377,16 @@ export default function ProductDetail() {
     const todasPreguntas: Pregunta[] = JSON.parse(
       localStorage.getItem('falu_preguntas_productos') || '[]'
     );
-    setPreguntas(todasPreguntas.filter((p) => String(p.id_producto) === String(id)));
+    setPreguntas(
+      todasPreguntas.filter((p) => String(p.id_producto) === String(id))
+    );
 
     const todasOpiniones: Opinion[] = JSON.parse(
       localStorage.getItem('falu_opiniones_productos') || '[]'
     );
-    setOpiniones(todasOpiniones.filter((o) => String(o.id_producto) === String(id)));
+    setOpiniones(
+      todasOpiniones.filter((o) => String(o.id_producto) === String(id))
+    );
   };
 
   useEffect(() => {
@@ -316,10 +398,13 @@ export default function ProductDetail() {
       try {
         const res = await api.get('/products');
         if (Array.isArray(res.data) && res.data.length > 0) {
-          localStorage.setItem('falu_productos_locales', JSON.stringify(res.data));
+          localStorage.setItem(
+            'falu_productos_locales',
+            JSON.stringify(res.data)
+          );
         }
       } catch {
-        // Usa copia local si está despertando el servidor
+        // Fallback local
       }
 
       sincronizarVistaDesdeStorage();
@@ -329,12 +414,14 @@ export default function ProductDetail() {
     cargarDatosIniciales();
   }, [id, user]);
 
-  // Escucha los eventos en tiempo real (cada 2 seg) para mostrar preguntas, respuestas, reseñas y stock sin refrescar
   useEffect(() => {
     window.addEventListener('falu_actualizacion', sincronizarVistaDesdeStorage);
     window.addEventListener('storage', sincronizarVistaDesdeStorage);
     return () => {
-      window.removeEventListener('falu_actualizacion', sincronizarVistaDesdeStorage);
+      window.removeEventListener(
+        'falu_actualizacion',
+        sincronizarVistaDesdeStorage
+      );
       window.removeEventListener('storage', sincronizarVistaDesdeStorage);
     };
   }, [id, user]);
@@ -356,13 +443,19 @@ export default function ProductDetail() {
         )
       : [productoActualizado, ...guardadosLocal];
 
-    localStorage.setItem('falu_productos_locales', JSON.stringify(nuevaListaLocal));
+    localStorage.setItem(
+      'falu_productos_locales',
+      JSON.stringify(nuevaListaLocal)
+    );
     setTodosLosProductos(nuevaListaLocal);
 
     try {
-      await api.put(`/products/${productoActualizado.id_producto}`, productoActualizado);
+      await api.put(
+        `/products/${productoActualizado.id_producto}`,
+        productoActualizado
+      );
     } catch {
-      // Ya sincronizado vía /api/sync
+      // Sincronizado vía /api/sync
     }
   };
 
@@ -467,7 +560,9 @@ export default function ProductDetail() {
           ctx?.drawImage(img, 0, 0, width, height);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
 
-          setEditImagenes((prev) => (prev.length < 8 ? [...prev, dataUrl] : prev));
+          setEditImagenes((prev) =>
+            prev.length < 8 ? [...prev, dataUrl] : prev
+          );
         };
         if (event.target?.result) {
           img.src = event.target.result as string;
@@ -502,35 +597,46 @@ export default function ProductDetail() {
       return;
     }
 
+    const nuevoStockNum = Number(editStock);
+
     const actualizado: ProductoDetalle = {
       ...producto,
       titulo: editTitulo.trim(),
       precio: Number(editPrecio),
-      stock: Number(editStock),
+      stock: nuevoStockNum,
       categoria: editCategoria,
       descripcion: editDescripcion.trim(),
       imagen_url: editImagenes[0],
       imagenes: editImagenes,
       caracteristicas: {
-        principales: editPrincipales.filter((f) => f.clave.trim() && f.valor.trim()),
+        principales: editPrincipales.filter(
+          (f) => f.clave.trim() && f.valor.trim()
+        ),
         dimensiones: editDimensiones.trim(),
         otros: editOtros.filter((f) => f.clave.trim() && f.valor.trim())
       }
     };
 
     await guardarCambiosProducto(actualizado);
-    if (Number(editStock) > 0) {
+
+    if (nuevoStockNum > 0) {
       notificarReposicionStock(
         producto.id_producto,
         editTitulo.trim(),
-        Number(editStock)
+        nuevoStockNum
       );
+    } else if (nuevoStockNum === 0) {
+      notificarProductoSinStock({
+        id_producto: producto.id_producto,
+        titulo_producto: editTitulo.trim(),
+        id_vendedor: Number(producto.id_vendedor || user?.id_usuario || 1)
+      });
     }
+
     setIndiceFoto(0);
     setModoEdicion(false);
   };
 
-  // Bloqueado si es el propio vendedor dueño (Soluciona Bug 3)
   const handleConfirmarBajaAdmin = async (e: FormEvent) => {
     e.preventDefault();
     if (!producto || !esAdmin || esVendedorDueno) return;
@@ -545,7 +651,9 @@ export default function ProductDetail() {
     registrarLogAuditoria({
       admin_nombre: `${user?.nombre || 'Admin'} ${user?.apellido || ''}`.trim(),
       rol_admin:
-        obtenerRolUsuario(user) === 'superadmin' ? 'Super Admin' : 'Administrador',
+        obtenerRolUsuario(user) === 'superadmin'
+          ? 'Super Admin'
+          : 'Administrador',
       tipo_entidad: 'producto',
       accion: 'Baja / Ocultamiento desde la publicación',
       detalle: `Publicación "${producto.titulo}" (#${producto.id_producto}) ocultada por motivo: ${motivoBajaSeleccionado}`,
@@ -567,7 +675,9 @@ export default function ProductDetail() {
     registrarLogAuditoria({
       admin_nombre: `${user?.nombre || 'Admin'} ${user?.apellido || ''}`.trim(),
       rol_admin:
-        obtenerRolUsuario(user) === 'superadmin' ? 'Super Admin' : 'Administrador',
+        obtenerRolUsuario(user) === 'superadmin'
+          ? 'Super Admin'
+          : 'Administrador',
       tipo_entidad: 'producto',
       accion: 'Restauración de publicación',
       detalle: `Publicación "${producto.titulo}" (#${producto.id_producto}) restaurada al catálogo público`,
@@ -580,7 +690,12 @@ export default function ProductDetail() {
       navigate('/login');
       return;
     }
-    if (!producto || esVendedorDueno || producto.estado === 'oculto' || producto.stock <= 0) {
+    if (
+      !producto ||
+      esVendedorDueno ||
+      producto.estado === 'oculto' ||
+      producto.stock <= 0
+    ) {
       return;
     }
 
@@ -599,10 +714,8 @@ export default function ProductDetail() {
       stock: nuevoStock
     };
 
-    // 1. Actualizar stock inmediatamente para todos los usuarios en Neon
     await guardarCambiosProducto(productoActualizado);
 
-    // 2. Registrar la compra en la lista global compartida
     const comprasGuardadas = JSON.parse(
       localStorage.getItem('falu_compras_usuarios') || '[]'
     );
@@ -612,9 +725,12 @@ export default function ProductDetail() {
       id_vendedor: producto.id_vendedor || 1,
       fecha: new Date().toLocaleDateString('es-AR')
     });
-    localStorage.setItem('falu_compras_usuarios', JSON.stringify(comprasGuardadas));
+    localStorage.setItem(
+      'falu_compras_usuarios',
+      JSON.stringify(comprasGuardadas)
+    );
 
-    // 3. Enviar notificación en tiempo real al vendedor y crear canal de chat
+    // 1. Notificar venta al vendedor y abrir chat post-venta
     registrarEventosPostCompra({
       id_producto: producto.id_producto,
       titulo_producto: producto.titulo,
@@ -623,6 +739,15 @@ export default function ProductDetail() {
       id_comprador: user.id_usuario,
       comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim()
     });
+
+    // 2. Si el producto quedó en 0 unidades, enviar notificación de "Sin Stock" al vendedor
+    if (nuevoStock === 0) {
+      notificarProductoSinStock({
+        id_producto: producto.id_producto,
+        titulo_producto: producto.titulo,
+        id_vendedor: Number(producto.id_vendedor || 1)
+      });
+    }
 
     setHaComprado(true);
     setMensajeCompra(
@@ -638,12 +763,15 @@ export default function ProductDetail() {
     }
     if (!nuevaPregunta.trim() || !producto || esVendedorDueno) return;
 
+    const textoLimpio = nuevaPregunta.trim();
+    const nombreAutor = `${user.nombre} ${user.apellido || ''}`.trim();
+
     const preguntaObj: Pregunta = {
       id_pregunta: Date.now(),
       id_producto: producto.id_producto,
       id_usuario: user.id_usuario,
-      usuario_nombre: `${user.nombre} ${user.apellido || ''}`.trim(),
-      texto_pregunta: nuevaPregunta.trim(),
+      usuario_nombre: nombreAutor,
+      texto_pregunta: textoLimpio,
       fecha: new Date().toLocaleString('es-AR'),
       creado_en: Date.now(),
       reportes: []
@@ -653,7 +781,19 @@ export default function ProductDetail() {
       localStorage.getItem('falu_preguntas_productos') || '[]'
     );
     const actualizadas = [preguntaObj, ...todasPreguntas];
-    localStorage.setItem('falu_preguntas_productos', JSON.stringify(actualizadas));
+    localStorage.setItem(
+      'falu_preguntas_productos',
+      JSON.stringify(actualizadas)
+    );
+
+    // Notificar al vendedor en el apartado "Preguntas"
+    notificarNuevaPregunta({
+      id_producto: producto.id_producto,
+      titulo_producto: producto.titulo,
+      id_vendedor: Number(producto.id_vendedor || 1),
+      usuario_pregunta_nombre: nombreAutor,
+      texto_pregunta: textoLimpio
+    });
 
     setPreguntas((prev) => [preguntaObj, ...prev]);
     setNuevaPregunta('');
@@ -662,7 +802,9 @@ export default function ProductDetail() {
   const handleEliminarMiPregunta = (preg: Pregunta) => {
     if (!user || Number(preg.id_usuario) !== Number(user.id_usuario)) return;
     if (!estaEnVentanaDe4Horas(preg.creado_en)) {
-      alert('Ya transcurrieron las 4 horas máximas permitidas para eliminar tu pregunta.');
+      alert(
+        'Ya transcurrieron las 4 horas máximas permitidas para eliminar tu pregunta.'
+      );
       return;
     }
 
@@ -672,25 +814,49 @@ export default function ProductDetail() {
     const actualizadas = todasPreguntas.filter(
       (p) => p.id_pregunta !== preg.id_pregunta
     );
-    localStorage.setItem('falu_preguntas_productos', JSON.stringify(actualizadas));
-    setPreguntas((prev) => prev.filter((p) => p.id_pregunta !== preg.id_pregunta));
+    localStorage.setItem(
+      'falu_preguntas_productos',
+      JSON.stringify(actualizadas)
+    );
+    setPreguntas((prev) =>
+      prev.filter((p) => p.id_pregunta !== preg.id_pregunta)
+    );
   };
 
   const handleResponderPregunta = (idPregunta: number) => {
-    if (!esVendedorDueno) return;
+    if (!esVendedorDueno || !producto) return;
     const texto = respuestasBorrador[idPregunta];
     if (!texto || !texto.trim()) return;
 
     const todasPreguntas: Pregunta[] = JSON.parse(
       localStorage.getItem('falu_preguntas_productos') || '[]'
     );
+    const pregOriginal = todasPreguntas.find(
+      (p) => p.id_pregunta === idPregunta
+    );
+
     const actualizadas = todasPreguntas.map((p) =>
       p.id_pregunta === idPregunta ? { ...p, texto_respuesta: texto.trim() } : p
     );
-    localStorage.setItem('falu_preguntas_productos', JSON.stringify(actualizadas));
+    localStorage.setItem(
+      'falu_preguntas_productos',
+      JSON.stringify(actualizadas)
+    );
+
+    // Notificar al autor de la pregunta que el vendedor le respondió
+    if (pregOriginal?.id_usuario) {
+      notificarRespuestaPregunta({
+        id_producto: producto.id_producto,
+        titulo_producto: producto.titulo,
+        id_usuario_destino: Number(pregOriginal.id_usuario),
+        texto_respuesta: texto.trim()
+      });
+    }
 
     setPreguntas(
-      actualizadas.filter((p) => String(p.id_producto) === String(producto?.id_producto))
+      actualizadas.filter(
+        (p) => String(p.id_producto) === String(producto.id_producto)
+      )
     );
   };
 
@@ -699,7 +865,9 @@ export default function ProductDetail() {
     if (!files) return;
 
     if (mediaOpinion.length + files.length > 4) {
-      setErrorMedia('Podés adjuntar hasta 4 archivos (fotos o videos) por opinión.');
+      setErrorMedia(
+        'Podés adjuntar hasta 4 archivos (fotos o videos) por opinión.'
+      );
       return;
     }
 
@@ -759,17 +927,26 @@ export default function ProductDetail() {
 
   const handleEnviarOpinion = (e: FormEvent) => {
     e.preventDefault();
-    if (esVendedorDueno || !haComprado || !user || !producto || !comentarioOpinion.trim()) {
+    if (
+      esVendedorDueno ||
+      !haComprado ||
+      !user ||
+      !producto ||
+      !comentarioOpinion.trim()
+    ) {
       return;
     }
+
+    const nombreComprador = `${user.nombre} ${user.apellido || ''}`.trim();
+    const comentarioLimpio = comentarioOpinion.trim();
 
     const nuevaOp: Opinion = {
       id_opinion: Date.now(),
       id_producto: producto.id_producto,
       id_comprador: user.id_usuario,
-      comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim(),
+      comprador_nombre: nombreComprador,
       calificacion: estrellasSeleccionadas,
-      comentario: comentarioOpinion.trim(),
+      comentario: comentarioLimpio,
       archivos_media: mediaOpinion,
       likes: 0,
       usuarios_like: [],
@@ -782,7 +959,20 @@ export default function ProductDetail() {
       localStorage.getItem('falu_opiniones_productos') || '[]'
     );
     const nuevasOpinionesGlobal = [nuevaOp, ...todasOpiniones];
-    localStorage.setItem('falu_opiniones_productos', JSON.stringify(nuevasOpinionesGlobal));
+    localStorage.setItem(
+      'falu_opiniones_productos',
+      JSON.stringify(nuevasOpinionesGlobal)
+    );
+
+    // Notificar al vendedor en el apartado "Opiniones"
+    notificarNuevaOpinion({
+      id_producto: producto.id_producto,
+      titulo_producto: producto.titulo,
+      id_vendedor: Number(producto.id_vendedor || 1),
+      comprador_nombre: nombreComprador,
+      calificacion: estrellasSeleccionadas,
+      comentario: comentarioLimpio
+    });
 
     const opinionesDeEsteProducto = nuevasOpinionesGlobal.filter(
       (o) => String(o.id_producto) === String(producto.id_producto)
@@ -798,7 +988,9 @@ export default function ProductDetail() {
   const handleEliminarMiOpinion = (op: Opinion) => {
     if (!user || Number(op.id_comprador) !== Number(user.id_usuario)) return;
     if (!estaEnVentanaDe4Horas(op.creado_en)) {
-      alert('Ya transcurrieron las 4 horas máximas permitidas para eliminar tu opinión.');
+      alert(
+        'Ya transcurrieron las 4 horas máximas permitidas para eliminar tu opinión.'
+      );
       return;
     }
 
@@ -808,7 +1000,10 @@ export default function ProductDetail() {
     const nuevasGlobal = todasOpiniones.filter(
       (item) => item.id_opinion !== op.id_opinion
     );
-    localStorage.setItem('falu_opiniones_productos', JSON.stringify(nuevasGlobal));
+    localStorage.setItem(
+      'falu_opiniones_productos',
+      JSON.stringify(nuevasGlobal)
+    );
 
     const deEsteProd = nuevasGlobal.filter(
       (o) => String(o.id_producto) === String(producto?.id_producto)
@@ -841,9 +1036,14 @@ export default function ProductDetail() {
       };
     });
 
-    localStorage.setItem('falu_opiniones_productos', JSON.stringify(actualizadas));
+    localStorage.setItem(
+      'falu_opiniones_productos',
+      JSON.stringify(actualizadas)
+    );
     setOpiniones(
-      actualizadas.filter((o) => String(o.id_producto) === String(producto?.id_producto))
+      actualizadas.filter(
+        (o) => String(o.id_producto) === String(producto?.id_producto)
+      )
     );
   };
 
@@ -859,7 +1059,8 @@ export default function ProductDetail() {
       id_usuario: user.id_usuario,
       usuario_nombre: `${user.nombre} ${user.apellido || ''}`.trim(),
       motivo: motivoSeleccionado,
-      descripcion: descripcionReporteInteraccion.trim() || 'Sin descripción adicional',
+      descripcion:
+        descripcionReporteInteraccion.trim() || 'Sin descripción adicional',
       fecha: new Date().toLocaleString('es-AR')
     };
 
@@ -877,9 +1078,14 @@ export default function ProductDetail() {
         };
       });
 
-      localStorage.setItem('falu_opiniones_productos', JSON.stringify(actualizadas));
+      localStorage.setItem(
+        'falu_opiniones_productos',
+        JSON.stringify(actualizadas)
+      );
       setOpiniones(
-        actualizadas.filter((o) => String(o.id_producto) === String(producto?.id_producto))
+        actualizadas.filter(
+          (o) => String(o.id_producto) === String(producto?.id_producto)
+        )
       );
     } else {
       const todasPreguntas: Pregunta[] = JSON.parse(
@@ -895,9 +1101,14 @@ export default function ProductDetail() {
         };
       });
 
-      localStorage.setItem('falu_preguntas_productos', JSON.stringify(actualizadas));
+      localStorage.setItem(
+        'falu_preguntas_productos',
+        JSON.stringify(actualizadas)
+      );
       setPreguntas(
-        actualizadas.filter((p) => String(p.id_producto) === String(producto?.id_producto))
+        actualizadas.filter(
+          (p) => String(p.id_producto) === String(producto?.id_producto)
+        )
       );
     }
 
@@ -926,7 +1137,9 @@ export default function ProductDetail() {
       <div className="min-h-screen bg-slate-100 flex flex-col">
         <Navbar />
         <div className="flex-1 flex flex-col items-center justify-center p-4">
-          <p className="text-slate-700 font-bold mb-4">No se encontró la publicación</p>
+          <p className="text-slate-700 font-bold mb-4">
+            No se encontró la publicación
+          </p>
           <Link to="/" className="text-blue-600 font-bold text-sm hover:underline">
             Volver al inicio
           </Link>
@@ -995,7 +1208,10 @@ export default function ProductDetail() {
   const desplazarCarrusel = (direccion: 'izq' | 'der') => {
     if (!carruselRelacionadosRef.current) return;
     const desplazamiento = direccion === 'der' ? 320 : -320;
-    carruselRelacionadosRef.current.scrollBy({ left: desplazamiento, behavior: 'smooth' });
+    carruselRelacionadosRef.current.scrollBy({
+      left: desplazamiento,
+      behavior: 'smooth'
+    });
   };
 
   return (
@@ -1003,7 +1219,6 @@ export default function ProductDetail() {
       <Navbar />
 
       <main className="max-w-6xl w-full mx-auto px-4 py-8 space-y-8 flex-1">
-        
         {avisoReporte && (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-xs font-bold">
             {avisoReporte}
@@ -1036,7 +1251,6 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {/* Solo muestra el botón de Bajar/Ocultar si es Admin Y NO es el dueño de la publicación */}
         {esAdmin && !esVendedorDueno && producto.estado !== 'oculto' && (
           <div className="bg-slate-900 text-white rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
             <div className="flex items-center gap-2.5">
@@ -1064,7 +1278,6 @@ export default function ProductDetail() {
         {/* 1. BLOQUE PRINCIPAL */}
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 sm:p-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            
             <div className="lg:col-span-7 flex flex-col-reverse sm:flex-row gap-4">
               {listaFotos.length > 1 && (
                 <div className="flex sm:flex-col gap-2 overflow-x-auto sm:w-16 shrink-0">
@@ -1075,10 +1288,16 @@ export default function ProductDetail() {
                       onMouseEnter={() => setIndiceFoto(i)}
                       onClick={() => setIndiceFoto(i)}
                       className={`w-14 h-14 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${
-                        indiceFoto === i ? 'border-blue-600' : 'border-slate-200'
+                        indiceFoto === i
+                          ? 'border-blue-600'
+                          : 'border-slate-200'
                       }`}
                     >
-                      <img src={img} alt="" className="w-full h-full object-cover" />
+                      <img
+                        src={img}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
                     </button>
                   ))}
                 </div>
@@ -1124,7 +1343,8 @@ export default function ProductDetail() {
                         <Star
                           key={star}
                           className={`w-4 h-4 ${
-                            star <= Math.round(producto.calificacion_promedio || 0)
+                            star <=
+                            Math.round(producto.calificacion_promedio || 0)
                               ? 'fill-amber-400 text-amber-400'
                               : 'text-slate-300'
                           }`}
@@ -1135,7 +1355,8 @@ export default function ProductDetail() {
                       {producto.calificacion_promedio}
                     </span>
                     <span className="text-xs text-slate-400">
-                      ({opiniones.length} {opiniones.length === 1 ? 'opinión' : 'opiniones'})
+                      ({opiniones.length}{' '}
+                      {opiniones.length === 1 ? 'opinión' : 'opiniones'})
                     </span>
                   </div>
                 )}
@@ -1149,7 +1370,8 @@ export default function ProductDetail() {
                 <p className="text-xs font-semibold text-slate-700 mt-4">
                   Stock disponible:{' '}
                   <span className="font-normal text-slate-500">
-                    ({producto.stock} {producto.stock === 1 ? 'disponible' : 'disponibles'})
+                    ({producto.stock}{' '}
+                    {producto.stock === 1 ? 'disponible' : 'disponibles'})
                   </span>
                 </p>
 
@@ -1181,7 +1403,9 @@ export default function ProductDetail() {
                 <div className="space-y-3 mt-6 pt-4">
                   <button
                     type="button"
-                    disabled={producto.stock <= 0 || producto.estado === 'oculto'}
+                    disabled={
+                      producto.stock <= 0 || producto.estado === 'oculto'
+                    }
                     onClick={handleComprarAhora}
                     className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold text-sm py-3.5 rounded-xl transition-colors"
                   >
@@ -1221,7 +1445,6 @@ export default function ProductDetail() {
                 </div>
               )}
             </div>
-
           </div>
         </div>
 
@@ -1234,7 +1457,9 @@ export default function ProductDetail() {
                   <h2 className="text-xl font-normal text-slate-900">
                     Productos relacionados
                   </h2>
-                  <span className="text-xs text-slate-400">Misma categoría</span>
+                  <span className="text-xs text-slate-400">
+                    Misma categoría
+                  </span>
                 </div>
 
                 <div className="relative group">
@@ -1298,7 +1523,8 @@ export default function ProductDetail() {
               <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 sm:p-8">
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="text-xl font-normal text-slate-900">
-                    Más publicaciones de {producto.vendedor_nombre || 'este vendedor'}
+                    Más publicaciones de{' '}
+                    {producto.vendedor_nombre || 'este vendedor'}
                   </h2>
                   <Link
                     to={`/vendedor/${producto.id_vendedor || 1}`}
@@ -1343,7 +1569,10 @@ export default function ProductDetail() {
         {(principales.length > 0 || dimensiones || otros.length > 0) && (
           <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 sm:p-8">
             <h2 className="text-xl sm:text-2xl font-normal text-slate-900 mb-6">
-              Características del {producto.tipo_publicacion === 'vehiculo' ? 'vehículo' : 'producto'}
+              Características del{' '}
+              {producto.tipo_publicacion === 'vehiculo'
+                ? 'vehículo'
+                : 'producto'}
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -1360,7 +1589,9 @@ export default function ProductDetail() {
                           index % 2 === 0 ? 'bg-neutral-100' : 'bg-white'
                         }`}
                       >
-                        <span className="font-semibold text-slate-800">{fila.clave}</span>
+                        <span className="font-semibold text-slate-800">
+                          {fila.clave}
+                        </span>
                         <span className="text-slate-700">{fila.valor}</span>
                       </div>
                     ))}
@@ -1398,7 +1629,9 @@ export default function ProductDetail() {
                             index % 2 === 0 ? 'bg-neutral-100' : 'bg-white'
                           }`}
                         >
-                          <span className="font-semibold text-slate-800">{fila.clave}</span>
+                          <span className="font-semibold text-slate-800">
+                            {fila.clave}
+                          </span>
                           <span className="text-slate-700">{fila.valor}</span>
                         </div>
                       ))}
@@ -1424,7 +1657,10 @@ export default function ProductDetail() {
               Sos el vendedor de este producto. No podés realizar preguntas en tu propia publicación, pero desde acá podés responder las consultas de los interesados en tiempo real.
             </div>
           ) : (
-            <form onSubmit={handleEnviarPregunta} className="flex flex-col sm:flex-row gap-3 mb-8">
+            <form
+              onSubmit={handleEnviarPregunta}
+              className="flex flex-col sm:flex-row gap-3 mb-8"
+            >
               <input
                 type="text"
                 value={nuevaPregunta}
@@ -1474,7 +1710,8 @@ export default function ProductDetail() {
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>
-                              Eliminar ({calcularTiempoRestanteBorrado(preg.creado_en)})
+                              Eliminar (
+                              {calcularTiempoRestanteBorrado(preg.creado_en)})
                             </span>
                           </button>
                         )}
@@ -1529,7 +1766,9 @@ export default function ProductDetail() {
                           />
                           <button
                             type="button"
-                            onClick={() => handleResponderPregunta(preg.id_pregunta)}
+                            onClick={() =>
+                              handleResponderPregunta(preg.id_pregunta)
+                            }
                             className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
                           >
                             <Send className="w-3 h-3" />
@@ -1612,7 +1851,9 @@ export default function ProductDetail() {
                   <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:border-blue-600 text-xs font-semibold text-slate-700 cursor-pointer transition-colors">
                     <ImagePlus className="w-4 h-4 text-blue-600" />
                     <Video className="w-4 h-4 text-blue-600" />
-                    <span>Agregar fotos o videos ({mediaOpinion.length}/4)</span>
+                    <span>
+                      Agregar fotos o videos ({mediaOpinion.length}/4)
+                    </span>
                     <input
                       type="file"
                       accept="image/*,video/*"
@@ -1622,7 +1863,9 @@ export default function ProductDetail() {
                     />
                   </label>
                   {errorMedia && (
-                    <span className="text-xs text-red-600 font-medium">{errorMedia}</span>
+                    <span className="text-xs text-red-600 font-medium">
+                      {errorMedia}
+                    </span>
                   )}
                 </div>
 
@@ -1634,14 +1877,23 @@ export default function ProductDetail() {
                         className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-300 bg-black shrink-0"
                       >
                         {item.tipo === 'video' ? (
-                          <video src={item.url} className="w-full h-full object-cover" />
+                          <video
+                            src={item.url}
+                            className="w-full h-full object-cover"
+                          />
                         ) : (
-                          <img src={item.url} alt="" className="w-full h-full object-cover" />
+                          <img
+                            src={item.url}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
                         )}
                         <button
                           type="button"
                           onClick={() =>
-                            setMediaOpinion((prev) => prev.filter((_, i) => i !== idx))
+                            setMediaOpinion((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            )
                           }
                           className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-0.5"
                         >
@@ -1675,7 +1927,9 @@ export default function ProductDetail() {
           ) : (
             <div className="space-y-6">
               {opiniones.map((op) => {
-                const dioLike = user ? op.usuarios_like.includes(user.id_usuario) : false;
+                const dioLike = user
+                  ? op.usuarios_like.includes(user.id_usuario)
+                  : false;
                 const esMiOpinion = Boolean(
                   user && Number(op.id_comprador) === Number(user.id_usuario)
                 );
@@ -1760,7 +2014,8 @@ export default function ProductDetail() {
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>
-                              Eliminar mi opinión ({calcularTiempoRestanteBorrado(op.creado_en)})
+                              Eliminar mi opinión (
+                              {calcularTiempoRestanteBorrado(op.creado_en)})
                             </span>
                           </button>
                         ) : (
@@ -1814,7 +2069,10 @@ export default function ProductDetail() {
               </button>
             </div>
 
-            <form onSubmit={handleConfirmarReporteProducto} className="space-y-4">
+            <form
+              onSubmit={handleConfirmarReporteProducto}
+              className="space-y-4"
+            >
               <p className="text-xs text-slate-600">
                 Seleccioná el motivo del reporte y detallá la situación para los administradores:
               </p>
@@ -1881,7 +2139,8 @@ export default function ProductDetail() {
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900">
-                Reportar {objetivoReporte.tipo === 'opinion' ? 'opinión' : 'pregunta'}
+                Reportar{' '}
+                {objetivoReporte.tipo === 'opinion' ? 'opinión' : 'pregunta'}
               </h3>
               <button
                 type="button"
@@ -1892,7 +2151,10 @@ export default function ProductDetail() {
               </button>
             </div>
 
-            <form onSubmit={handleConfirmarReporteInteraccion} className="space-y-4">
+            <form
+              onSubmit={handleConfirmarReporteInteraccion}
+              className="space-y-4"
+            >
               <div className="space-y-2">
                 {MOTIVOS_REPORTE_INTERACCION.map((motivo) => (
                   <label
@@ -1923,7 +2185,9 @@ export default function ProductDetail() {
                   rows={2}
                   required
                   value={descripcionReporteInteraccion}
-                  onChange={(e) => setDescripcionReporteInteraccion(e.target.value)}
+                  onChange={(e) =>
+                    setDescripcionReporteInteraccion(e.target.value)
+                  }
                   placeholder="Detallá el motivo del reporte..."
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:border-blue-600 outline-none"
                 />
@@ -2108,7 +2372,10 @@ export default function ProductDetail() {
                   <button
                     type="button"
                     onClick={() =>
-                      setEditPrincipales([...editPrincipales, { clave: '', valor: '' }])
+                      setEditPrincipales([
+                        ...editPrincipales,
+                        { clave: '', valor: '' }
+                      ])
                     }
                     className="text-xs font-bold text-blue-600 flex items-center gap-1"
                   >
@@ -2143,7 +2410,9 @@ export default function ProductDetail() {
                       <button
                         type="button"
                         onClick={() =>
-                          setEditPrincipales(editPrincipales.filter((_, i) => i !== idx))
+                          setEditPrincipales(
+                            editPrincipales.filter((_, i) => i !== idx)
+                          )
                         }
                         className="text-slate-400 hover:text-red-500 px-1"
                       >
@@ -2156,10 +2425,14 @@ export default function ProductDetail() {
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-slate-700">Otros</label>
+                  <label className="text-xs font-bold text-slate-700">
+                    Otros
+                  </label>
                   <button
                     type="button"
-                    onClick={() => setEditOtros([...editOtros, { clave: '', valor: '' }])}
+                    onClick={() =>
+                      setEditOtros([...editOtros, { clave: '', valor: '' }])
+                    }
                     className="text-xs font-bold text-blue-600 flex items-center gap-1"
                   >
                     <Plus className="w-3.5 h-3.5" /> Agregar fila
@@ -2192,7 +2465,9 @@ export default function ProductDetail() {
                       />
                       <button
                         type="button"
-                        onClick={() => setEditOtros(editOtros.filter((_, i) => i !== idx))}
+                        onClick={() =>
+                          setEditOtros(editOtros.filter((_, i) => i !== idx))
+                        }
                         className="text-slate-400 hover:text-red-500 px-1"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -2268,7 +2543,9 @@ export default function ProductDetail() {
                       name="motivoBajaAdmin"
                       value={motivo}
                       checked={motivoBajaSeleccionado === motivo}
-                      onChange={(e) => setMotivoBajaSeleccionado(e.target.value)}
+                      onChange={(e) =>
+                        setMotivoBajaSeleccionado(e.target.value)
+                      }
                     />
                     <span>{motivo}</span>
                   </label>
