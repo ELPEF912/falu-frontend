@@ -10,14 +10,17 @@ import {
   CheckCheck,
   Trash2,
   ExternalLink,
-  MapPin
+  MapPin,
+  XCircle
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { useAuth } from '../context/AuthContext';
+import { sincronizarDatosPuntualesDesdeNube } from '../services/api';
 
 export type TipoNotificacion =
   | 'venta'
+  | 'compra_cancelada'
   | 'pregunta'
   | 'opinion'
   | 'sin_stock'
@@ -37,7 +40,7 @@ export interface NotificacionItem {
   leida: boolean;
 }
 
-// 1. Notificación de Venta + Creación de canal de chat post-venta
+// 1. Notificación de Venta + Creación garantizada del Chat post-venta
 export function registrarEventosPostCompra(params: {
   id_producto: number;
   titulo_producto: string;
@@ -48,7 +51,6 @@ export function registrarEventosPostCompra(params: {
 }) {
   const ahora = new Date().toLocaleString('es-AR');
 
-  // Obtener dirección principal del comprador para enviársela al vendedor
   const perfiles = JSON.parse(
     localStorage.getItem('falu_perfiles_usuarios') || '{}'
   );
@@ -86,40 +88,80 @@ export function registrarEventosPostCompra(params: {
     JSON.stringify([nuevaNotifVenta, ...todasNotif])
   );
 
-  // Habilitar conversación en el chat post-venta
+  // Crear o reactivar conversación en el chat post-venta
   const conversaciones = JSON.parse(
     localStorage.getItem('falu_conversaciones_chat') || '[]'
   );
-  const yaExisteChat = conversaciones.some(
+  const indiceExistente = conversaciones.findIndex(
     (c: any) =>
       Number(c.id_producto) === Number(params.id_producto) &&
       Number(c.id_comprador) === Number(params.id_comprador)
   );
 
-  if (!yaExisteChat) {
-    conversaciones.unshift({
-      id_conversacion: Date.now(),
+  let idConversacionActiva: number;
+
+  if (indiceExistente === -1) {
+    idConversacionActiva = Date.now();
+    const nuevaConv = {
+      id_conversacion: idConversacionActiva,
       id_producto: Number(params.id_producto),
       titulo_producto: params.titulo_producto,
       id_vendedor: Number(params.id_vendedor),
-      vendedor_nombre: params.vendedor_nombre,
+      vendedor_nombre: params.vendedor_nombre || 'Vendedor Falú',
       id_comprador: Number(params.id_comprador),
       comprador_nombre: params.comprador_nombre,
       iniciado_por_comprador: false,
       no_leidos_vendedor: 0,
       no_leidos_comprador: 0,
       mensajes: []
-    });
+    };
+    conversaciones.unshift(nuevaConv);
     localStorage.setItem(
       'falu_conversaciones_chat',
       JSON.stringify(conversaciones)
     );
+  } else {
+    idConversacionActiva = conversaciones[indiceExistente].id_conversacion;
   }
 
+  window.dispatchEvent(
+    new CustomEvent('falu_abrir_chat_compra', {
+      detail: { id_conversacion: idConversacionActiva }
+    })
+  );
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 2. Notificación al vendedor cuando su producto se queda SIN STOCK (stock === 0)
+// 2. Notificación al COMPRADOR cuando intenta comprar un producto que ya se había quedado sin stock
+export function notificarCompraCanceladaSinStock(params: {
+  id_producto: number;
+  titulo_producto: string;
+  id_comprador: number;
+}) {
+  const todasNotif: NotificacionItem[] = JSON.parse(
+    localStorage.getItem('falu_notificaciones') || '[]'
+  );
+
+  const notifCancelada: NotificacionItem = {
+    id_notificacion: Date.now() + Math.floor(Math.random() * 1000),
+    tipo: 'compra_cancelada',
+    id_usuario_destino: Number(params.id_comprador),
+    id_producto: Number(params.id_producto),
+    producto_titulo: params.titulo_producto,
+    fecha_compra: new Date().toLocaleString('es-AR'),
+    mensaje_extra:
+      'Tu compra fue cancelada automáticamente porque el producto se agotó hace unos instantes y ya no quedan unidades en stock. No se realizó ningún cargo.',
+    leida: false
+  };
+
+  localStorage.setItem(
+    'falu_notificaciones',
+    JSON.stringify([notifCancelada, ...todasNotif])
+  );
+  window.dispatchEvent(new Event('falu_actualizacion'));
+}
+
+// 3. Notificación al vendedor cuando su producto llega a 0 unidades (Evita duplicados consecutivos)
 export function notificarProductoSinStock(params: {
   id_producto: number;
   titulo_producto: string;
@@ -128,6 +170,16 @@ export function notificarProductoSinStock(params: {
   const todasNotif: NotificacionItem[] = JSON.parse(
     localStorage.getItem('falu_notificaciones') || '[]'
   );
+
+  // Evitar enviar múltiples alertas de "Sin Stock" seguidas para el mismo producto si ya hay una sin leer
+  const yaExisteAlertaActiva = todasNotif.some(
+    (n) =>
+      n.tipo === 'sin_stock' &&
+      Number(n.id_producto) === Number(params.id_producto) &&
+      Number(n.id_usuario_destino) === Number(params.id_vendedor) &&
+      !n.leida
+  );
+  if (yaExisteAlertaActiva) return;
 
   const alertaSinStock: NotificacionItem = {
     id_notificacion: Date.now() + Math.floor(Math.random() * 1000) + 1,
@@ -148,7 +200,7 @@ export function notificarProductoSinStock(params: {
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 3. Notificación cuando el vendedor repone stock
+// 4. Notificación cuando el vendedor repone stock
 export function notificarReposicionStock(
   idProducto: number,
   tituloProducto: string,
@@ -215,7 +267,7 @@ export function notificarReposicionStock(
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 4. Notificación cuando te hacen una PREGUNTA en tu publicación
+// 5. Notificación cuando te hacen una PREGUNTA
 export function notificarNuevaPregunta(params: {
   id_producto: number;
   titulo_producto: string;
@@ -246,7 +298,7 @@ export function notificarNuevaPregunta(params: {
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 5. Notificación al comprador cuando el vendedor RESPONDE su pregunta
+// 6. Notificación cuando el vendedor RESPONDE tu pregunta
 export function notificarRespuestaPregunta(params: {
   id_producto: number;
   titulo_producto: string;
@@ -275,7 +327,7 @@ export function notificarRespuestaPregunta(params: {
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 6. Notificación cuando dejan una OPINIÓN / RESEÑA en tu producto
+// 7. Notificación cuando dejan una OPINIÓN
 export function notificarNuevaOpinion(params: {
   id_producto: number;
   titulo_producto: string;
@@ -333,13 +385,15 @@ export default function Notificaciones() {
       navigate('/login');
       return;
     }
+    // Al entrar a la página de notificaciones, trae las últimas novedades de la base de datos
+    sincronizarDatosPuntualesDesdeNube().then(() => {
+      cargarMisNotificaciones();
+    });
     cargarMisNotificaciones();
 
     window.addEventListener('falu_actualizacion', cargarMisNotificaciones);
-    window.addEventListener('storage', cargarMisNotificaciones);
     return () => {
       window.removeEventListener('falu_actualizacion', cargarMisNotificaciones);
-      window.removeEventListener('storage', cargarMisNotificaciones);
     };
   }, [isAuthenticated, user, navigate]);
 
@@ -384,7 +438,10 @@ export default function Notificaciones() {
   const cantPreguntas = notificaciones.filter((n) => n.tipo === 'pregunta').length;
   const cantOpiniones = notificaciones.filter((n) => n.tipo === 'opinion').length;
   const cantStock = notificaciones.filter(
-    (n) => n.tipo === 'sin_stock' || n.tipo === 'stock_repuesto'
+    (n) =>
+      n.tipo === 'sin_stock' ||
+      n.tipo === 'stock_repuesto' ||
+      n.tipo === 'compra_cancelada'
   ).length;
 
   const notificacionesFiltradas = notificaciones.filter((n) => {
@@ -392,7 +449,11 @@ export default function Notificaciones() {
     if (apartadoActivo === 'preguntas') return n.tipo === 'pregunta';
     if (apartadoActivo === 'opiniones') return n.tipo === 'opinion';
     if (apartadoActivo === 'stock') {
-      return n.tipo === 'sin_stock' || n.tipo === 'stock_repuesto';
+      return (
+        n.tipo === 'sin_stock' ||
+        n.tipo === 'stock_repuesto' ||
+        n.tipo === 'compra_cancelada'
+      );
     }
     return true;
   });
@@ -408,7 +469,7 @@ export default function Notificaciones() {
     { id: 'opiniones', label: `Opiniones (${cantOpiniones})`, icon: Star },
     {
       id: 'stock',
-      label: `Stock y Avisos (${cantStock})`,
+      label: `Stock y Cancelaciones (${cantStock})`,
       icon: AlertTriangle
     }
   ];
@@ -418,6 +479,13 @@ export default function Notificaciones() {
       return (
         <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
           <ShoppingBag className="w-5 h-5" />
+        </div>
+      );
+    }
+    if (tipo === 'compra_cancelada') {
+      return (
+        <div className="w-10 h-10 rounded-xl bg-red-100 text-red-700 flex items-center justify-center shrink-0">
+          <XCircle className="w-5 h-5" />
         </div>
       );
     }
@@ -460,7 +528,7 @@ export default function Notificaciones() {
               Centro de Notificaciones
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Seguimiento en tiempo real de tus ventas, preguntas, opiniones y alertas de stock
+              Avisos de tus ventas, preguntas, opiniones, stock y compras canceladas
             </p>
           </div>
 
@@ -476,7 +544,6 @@ export default function Notificaciones() {
           )}
         </div>
 
-        {/* Pestañas / Apartados de Notificaciones */}
         <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-4 no-scrollbar">
           {apartados.map((tab) => {
             const Icono = tab.icon;
@@ -506,7 +573,7 @@ export default function Notificaciones() {
               No tenés notificaciones en este apartado
             </h2>
             <p className="text-xs text-slate-500">
-              Las novedades de tus ventas, preguntas, reseñas y alertas de stock aparecerán acá en vivo.
+              Las novedades de tus ventas, preguntas, reseñas y alertas de stock aparecerán acá.
             </p>
           </div>
         ) : (
@@ -518,7 +585,8 @@ export default function Notificaciones() {
                   if (!n.leida) marcarComoLeida(n.id_notificacion);
                 }}
                 className={`bg-white rounded-2xl border p-5 flex flex-col sm:flex-row items-start justify-between gap-4 transition-all ${
-                  n.tipo === 'sin_stock' && !n.leida
+                  (n.tipo === 'sin_stock' || n.tipo === 'compra_cancelada') &&
+                  !n.leida
                     ? 'border-red-400 bg-red-50/20 shadow-xs'
                     : !n.leida
                     ? 'border-blue-400 bg-blue-50/10 shadow-xs'
@@ -534,6 +602,8 @@ export default function Notificaciones() {
                         className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full ${
                           n.tipo === 'venta'
                             ? 'bg-emerald-100 text-emerald-800'
+                            : n.tipo === 'compra_cancelada'
+                            ? 'bg-red-600 text-white'
                             : n.tipo === 'pregunta'
                             ? 'bg-blue-100 text-blue-800'
                             : n.tipo === 'opinion'
@@ -545,6 +615,8 @@ export default function Notificaciones() {
                       >
                         {n.tipo === 'venta'
                           ? 'Nueva Venta'
+                          : n.tipo === 'compra_cancelada'
+                          ? 'Compra Cancelada (Sin Stock)'
                           : n.tipo === 'pregunta'
                           ? 'Pregunta / Respuesta'
                           : n.tipo === 'opinion'
@@ -587,12 +659,20 @@ export default function Notificaciones() {
                 <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                   {n.id_producto > 0 && (
                     <Link
-                      to={`/producto/${n.id_producto}`}
+                      to={
+                        n.tipo === 'compra_cancelada'
+                          ? '/mis-compras'
+                          : `/producto/${n.id_producto}`
+                      }
                       className="px-3.5 py-2 rounded-xl border border-slate-300 hover:border-blue-600 text-xs font-bold text-slate-700 hover:text-blue-600 flex items-center gap-1.5 transition-colors"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       <span>
-                        {n.tipo === 'sin_stock' ? 'Reponer stock' : 'Ver producto'}
+                        {n.tipo === 'sin_stock'
+                          ? 'Reponer stock'
+                          : n.tipo === 'compra_cancelada'
+                          ? 'Ver en Mis Compras'
+                          : 'Ver producto'}
                       </span>
                     </Link>
                   )}

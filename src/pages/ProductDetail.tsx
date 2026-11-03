@@ -35,6 +35,7 @@ import {
   registrarEventosPostCompra,
   notificarReposicionStock,
   notificarProductoSinStock,
+  notificarCompraCanceladaSinStock,
   notificarNuevaPregunta,
   notificarRespuestaPregunta,
   notificarNuevaOpinion
@@ -275,7 +276,9 @@ export default function ProductDetail() {
   const [cargando, setCargando] = useState(true);
 
   const [haComprado, setHaComprado] = useState(false);
-  const [mensajeCompra, setMensajeCompra] = useState('');
+const [mensajeCompra, setMensajeCompra] = useState('');
+const [compraCanceladaAviso, setCompraCanceladaAviso] = useState('');
+const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
 
   const [modoEdicion, setModoEdicion] = useState(false);
   const [editTitulo, setEditTitulo] = useState('');
@@ -685,17 +688,12 @@ export default function ProductDetail() {
     });
   };
 
-  const handleComprarAhora = async () => {
+const handleComprarAhora = async () => {
     if (!isAuthenticated || !user) {
       navigate('/login');
       return;
     }
-    if (
-      !producto ||
-      esVendedorDueno ||
-      producto.estado === 'oculto' ||
-      producto.stock <= 0
-    ) {
+    if (!producto || esVendedorDueno || producto.estado === 'oculto' || comprandoEnCurso) {
       return;
     }
 
@@ -708,53 +706,138 @@ export default function ProductDetail() {
       return;
     }
 
-    const nuevoStock = Math.max(0, Number(producto.stock) - 1);
-    const productoActualizado: ProductoDetalle = {
-      ...producto,
-      stock: nuevoStock
-    };
+    setComprandoEnCurso(true);
+    setMensajeCompra('');
+    setCompraCanceladaAviso('');
 
-    await guardarCambiosProducto(productoActualizado);
+    try {
+      // 1. Consultar el stock REAL en Neon PostgreSQL en el instante del clic
+      let stockRealEnServidor = Number(producto.stock);
+      try {
+        const resRemoto = await api.get(`/products/${producto.id_producto}`);
+        if (resRemoto.data && resRemoto.data.stock !== undefined) {
+          stockRealEnServidor = Number(resRemoto.data.stock);
+        }
+      } catch {
+        // Si el endpoint individual falla, consultamos la lista general
+        try {
+          const resLista = await api.get('/products');
+          if (Array.isArray(resLista.data)) {
+            const prodRemoto = resLista.data.find(
+              (p: any) => String(p.id_producto) === String(producto.id_producto)
+            );
+            if (prodRemoto) {
+              stockRealEnServidor = Number(prodRemoto.stock);
+            }
+          }
+        } catch {
+          // Usa el local si no hay red
+        }
+      }
 
-    const comprasGuardadas = JSON.parse(
-      localStorage.getItem('falu_compras_usuarios') || '[]'
-    );
-    comprasGuardadas.push({
-      id_usuario: user.id_usuario,
-      id_producto: producto.id_producto,
-      id_vendedor: producto.id_vendedor || 1,
-      fecha: new Date().toLocaleDateString('es-AR')
-    });
-    localStorage.setItem(
-      'falu_compras_usuarios',
-      JSON.stringify(comprasGuardadas)
-    );
+      // 2. CASO: El usuario tenía la pestaña abierta pero el producto YA SE AGOTÓ
+      if (stockRealEnServidor <= 0) {
+        const productoAgotado: ProductoDetalle = {
+          ...producto,
+          stock: 0
+        };
+        await guardarCambiosProducto(productoAgotado);
 
-    // 1. Notificar venta al vendedor y abrir chat post-venta
-    registrarEventosPostCompra({
-      id_producto: producto.id_producto,
-      titulo_producto: producto.titulo,
-      id_vendedor: Number(producto.id_vendedor || 1),
-      vendedor_nombre: producto.vendedor_nombre || 'Vendedor Falú',
-      id_comprador: user.id_usuario,
-      comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim()
-    });
+        // Registrar la compra como CANCELADA en Mis Compras
+        const comprasGuardadas = JSON.parse(
+          localStorage.getItem('falu_compras_usuarios') || '[]'
+        );
+        comprasGuardadas.unshift({
+          id_compra: Date.now(),
+          id_usuario: user.id_usuario,
+          id_producto: producto.id_producto,
+          id_vendedor: producto.id_vendedor || 1,
+          titulo_snapshot: producto.titulo,
+          precio_snapshot: producto.precio,
+          imagen_snapshot: producto.imagen_url || producto.imagenes?.[0] || null,
+          categoria_snapshot: producto.categoria,
+          cantidad: 1,
+          fecha: new Date().toLocaleDateString('es-AR'),
+          estado_compra: 'cancelada_sin_stock',
+          motivo_cancelacion:
+            'Compra cancelada automáticamente: el producto ya no tenía stock disponible al procesar el pago.'
+        });
+        localStorage.setItem(
+          'falu_compras_usuarios',
+          JSON.stringify(comprasGuardadas)
+        );
 
-    // 2. Si el producto quedó en 0 unidades, enviar notificación de "Sin Stock" al vendedor
-    if (nuevoStock === 0) {
-      notificarProductoSinStock({
+        // Enviar notificación al comprador avisando que se canceló por falta de stock
+        notificarCompraCanceladaSinStock({
+          id_producto: producto.id_producto,
+          titulo_producto: producto.titulo,
+          id_comprador: user.id_usuario
+        });
+
+        setCompraCanceladaAviso(
+          'Tu compra fue CANCELADA porque este producto se agotó hace unos instantes y ya no quedan unidades disponibles. Podés ver la constancia en tus Notificaciones y en Mis Compras.'
+        );
+        return;
+      }
+
+      // 3. CASO: Sí hay stock real -> Descontar 1 unidad sobre el stock real del servidor
+      const nuevoStock = Math.max(0, stockRealEnServidor - 1);
+      const productoActualizado: ProductoDetalle = {
+        ...producto,
+        stock: nuevoStock
+      };
+
+      await guardarCambiosProducto(productoActualizado);
+
+      const comprasGuardadas = JSON.parse(
+        localStorage.getItem('falu_compras_usuarios') || '[]'
+      );
+      comprasGuardadas.unshift({
+        id_compra: Date.now(),
+        id_usuario: user.id_usuario,
+        id_producto: producto.id_producto,
+        id_vendedor: producto.id_vendedor || 1,
+        titulo_snapshot: producto.titulo,
+        precio_snapshot: producto.precio,
+        imagen_snapshot: producto.imagen_url || producto.imagenes?.[0] || null,
+        categoria_snapshot: producto.categoria,
+        cantidad: 1,
+        fecha: new Date().toLocaleDateString('es-AR'),
+        estado_compra: 'completada'
+      });
+      localStorage.setItem(
+        'falu_compras_usuarios',
+        JSON.stringify(comprasGuardadas)
+      );
+
+      // Notificar venta al vendedor y abrir el chat post-venta
+      registrarEventosPostCompra({
         id_producto: producto.id_producto,
         titulo_producto: producto.titulo,
-        id_vendedor: Number(producto.id_vendedor || 1)
+        id_vendedor: Number(producto.id_vendedor || 1),
+        vendedor_nombre: producto.vendedor_nombre || 'Vendedor Falú',
+        id_comprador: user.id_usuario,
+        comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim()
       });
+
+      // Solo si esta compra hizo que el stock real pase de 1 a 0, avisar una única vez al vendedor
+      if (nuevoStock === 0) {
+        notificarProductoSinStock({
+          id_producto: producto.id_producto,
+          titulo_producto: producto.titulo,
+          id_vendedor: Number(producto.id_vendedor || 1)
+        });
+      }
+
+      setHaComprado(true);
+      setMensajeCompra(
+        '¡Compra registrada con éxito! Se habilitó el chat con el vendedor abajo a la derecha y ya podés dejar tu opinión.'
+      );
+    } finally {
+      setComprandoEnCurso(false);
     }
-
-    setHaComprado(true);
-    setMensajeCompra(
-      '¡Compra registrada con éxito! Ahora como comprador verificado podés dejar tu opinión abajo.'
-    );
   };
-
+  
   const handleEnviarPregunta = (e: FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated || !user) {
@@ -1383,6 +1466,13 @@ export default function ProductDetail() {
                     <span>{mensajeCompra}</span>
                   </div>
                 )}
+                {compraCanceladaAviso && (
+                  <div className="mt-4 bg-red-50 border-2 border-red-300 text-red-800 p-3.5 rounded-xl text-xs font-bold flex items-start gap-2">
+                    <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>{compraCanceladaAviso}</span>
+                  </div>
+                )}
+
               </div>
 
               {esVendedorDueno ? (

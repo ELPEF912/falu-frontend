@@ -74,16 +74,32 @@ export default function Footer() {
     setConversaciones(visiblesParaMi);
   };
 
-  useEffect(() => {
+useEffect(() => {
     cargarConversaciones();
-    window.addEventListener('storage', cargarConversaciones);
-    window.addEventListener('falu_actualizacion', cargarConversaciones);
-    return () => {
-      window.removeEventListener('storage', cargarConversaciones);
-      window.removeEventListener('falu_actualizacion', cargarConversaciones);
-    };
-  }, [isAuthenticated, user]);
 
+    const handleAbrirChatTrasCompra = (e: any) => {
+      cargarConversaciones();
+      setChatAbierto(true);
+      if (e?.detail?.id_conversacion) {
+        setIdConvActiva(String(e.detail.id_conversacion));
+      }
+    };
+
+    window.addEventListener('falu_actualizacion', cargarConversaciones);
+    window.addEventListener('falu_nuevo_mensaje_chat', cargarConversaciones);
+    window.addEventListener('storage', cargarConversaciones);
+    window.addEventListener('falu_abrir_chat_compra', handleAbrirChatTrasCompra);
+
+    return () => {
+      window.removeEventListener('falu_actualizacion', cargarConversaciones);
+      window.removeEventListener('falu_nuevo_mensaje_chat', cargarConversaciones);
+      window.removeEventListener('storage', cargarConversaciones);
+      window.removeEventListener(
+        'falu_abrir_chat_compra',
+        handleAbrirChatTrasCompra
+      );
+    };
+  }, [user, isAuthenticated]);
   // Marcar mensajes como leídos al abrir una conversación específica
   const seleccionarConversacion = (idConv: string) => {
     setIdConvActiva(idConv);
