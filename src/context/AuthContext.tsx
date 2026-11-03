@@ -19,57 +19,74 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Función auxiliar para decodificar un JWT si el backend no manda el objeto usuario separado
-function extraerUsuarioDeToken(jwt: string, emailFallback = ''): User | null {
+export function decodificarTokenJWT(jwt: string): any | null {
   try {
     const base64Url = jwt.split('.')[1];
     if (!base64Url) return null;
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(window.atob(base64));
-
-    const id = Number(payload.id_usuario ?? payload.id ?? payload.sub ?? Date.now());
-    const email = payload.email || emailFallback || 'usuario@falu.com';
-    const nombre =
-      payload.nombre ||
-      payload.name ||
-      (email.includes('@') ? email.split('@')[0] : 'Usuario');
-
-    return {
-      id_usuario: id,
-      nombre,
-      apellido: payload.apellido || '',
-      email,
-      roles: Array.isArray(payload.roles)
-        ? payload.roles
-        : payload.rol
-        ? [payload.rol]
-        : []
-    };
+    const jsonPayload = decodeURIComponent(
+      window
+        .atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
   } catch {
     return null;
   }
 }
 
-function normalizarObjetoUsuario(raw: any, emailFallback = ''): User | null {
-  if (!raw || typeof raw !== 'object') return null;
+function armarUsuarioUnificado(rawObj: any, jwt: string | null): User | null {
+  const payload = jwt ? decodificarTokenJWT(jwt) : null;
 
-  const email = raw.email || raw.correo || emailFallback || 'usuario@falu.com';
-  const nombre =
-    raw.nombre ||
-    raw.name ||
-    raw.username ||
-    (email.includes('@') ? email.split('@')[0] : 'Usuario');
+  if (!rawObj && !payload) return null;
+
+  // Priorizar siempre el ID numérico real que viene en el JWT o en la respuesta de la BD
+  const idReal = Number(
+    payload?.id_usuario ??
+      payload?.id ??
+      payload?.userId ??
+      payload?.sub ??
+      rawObj?.id_usuario ??
+      rawObj?.id ??
+      1
+  );
+
+  const email = String(
+    rawObj?.email || rawObj?.correo || payload?.email || 'usuario@falu.com'
+  )
+    .trim()
+    .toLowerCase();
+
+  const nombre = String(
+    rawObj?.nombre ||
+      rawObj?.name ||
+      payload?.nombre ||
+      payload?.name ||
+      (email.includes('@') ? email.split('@')[0] : 'Usuario')
+  ).trim();
+
+  const apellido = String(
+    rawObj?.apellido || rawObj?.lastname || payload?.apellido || ''
+  ).trim();
+
+  const roles = Array.isArray(rawObj?.roles)
+    ? rawObj.roles
+    : Array.isArray(payload?.roles)
+    ? payload.roles
+    : rawObj?.rol
+    ? [String(rawObj.rol)]
+    : payload?.rol
+    ? [String(payload.rol)]
+    : [];
 
   return {
-    id_usuario: Number(raw.id_usuario ?? raw.id ?? Date.now()),
-    nombre: String(nombre),
-    apellido: raw.apellido ? String(raw.apellido) : '',
-    email: String(email),
-    roles: Array.isArray(raw.roles)
-      ? raw.roles
-      : raw.rol
-      ? [String(raw.rol)]
-      : []
+    id_usuario: isNaN(idReal) ? 1 : idReal,
+    nombre,
+    apellido,
+    email,
+    roles
   };
 }
 
@@ -79,19 +96,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const [user, setUser] = useState<User | null>(() => {
-    const guardado =
-      localStorage.getItem('user') || localStorage.getItem('falu_user');
+    const tok = localStorage.getItem('token') || localStorage.getItem('falu_token');
+    const guardado = localStorage.getItem('user') || localStorage.getItem('falu_user');
     if (guardado) {
       try {
         const parsed = JSON.parse(guardado);
-        const norm = normalizarObjetoUsuario(parsed);
-        if (norm) return norm;
+        const unificado = armarUsuarioUnificado(parsed, tok);
+        if (unificado) return unificado;
       } catch {
-        // Si estaba corrupto en localStorage, intenta recuperarlo del token
+        // Fallback al token
       }
     }
-    const tok = localStorage.getItem('token') || localStorage.getItem('falu_token');
-    return tok ? extraerUsuarioDeToken(tok) : null;
+    return tok ? armarUsuarioUnificado(null, tok) : null;
   });
 
   useEffect(() => {
@@ -100,7 +116,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  // Acepta (token, user) o (user, token) indistintamente
   const login = (arg1: any, arg2?: any) => {
     let tokenRecibido: string | null = null;
     let objetoUsuario: any = null;
@@ -117,11 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const tokenFinal = tokenRecibido || 'sesion_local_activa';
-    let usuarioFinal = normalizarObjetoUsuario(objetoUsuario);
-
-    if (!usuarioFinal && tokenRecibido) {
-      usuarioFinal = extraerUsuarioDeToken(tokenRecibido);
-    }
+    const usuarioFinal = armarUsuarioUnificado(objetoUsuario, tokenFinal);
 
     if (usuarioFinal) {
       setToken(tokenFinal);
