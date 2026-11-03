@@ -1,27 +1,23 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  ShoppingBag,
   Search,
   MapPin,
   ChevronDown,
-  ChevronRight,
-  ShoppingCart,
-  Bell,
   Heart,
-  ShoppingBag,
-  Wallet,
+  Bell,
+  ShoppingCart,
+  User as UserIcon,
   LogOut,
-  Clock,
   Shield,
-  AlertTriangle
+  Clock,
+  X,
+  MessageSquare
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
-import {
-  esUsuarioAdminOSuperAdmin,
-  obtenerRolUsuario
-} from '../pages/AdminPanel';
-import api from '../services/api';
+import { esUsuarioAdminOSuperAdmin, obtenerRolUsuario } from '../pages/AdminPanel';
 
 export const CATEGORIAS_FALU = [
   'Todas',
@@ -35,362 +31,339 @@ export const CATEGORIAS_FALU = [
   'Vehículos y Repuestos'
 ];
 
-const obtenerEstadoDisciplinarioUsuario = (idUsuario: number, email?: string) => {
-  const usuariosSistema = JSON.parse(
-    localStorage.getItem('falu_usuarios_sistema') || '[]'
-  );
-
-  const usuario = Array.isArray(usuariosSistema)
-    ? usuariosSistema.find((item: any) =>
-        Number(item.id_usuario) === Number(idUsuario) ||
-        (email && String(item.email).toLowerCase() === email.toLowerCase())
-      )
-    : null;
-
-  const avisos = Number(usuario?.avisos ?? usuario?.avisos_acumulados ?? 0);
-  const bloqueadoParaentrar = Boolean(
-    usuario?.estado_cuenta === 'suspendido' ||
-    usuario?.baneado ||
-    usuario?.sancionado
-  );
-  const ultimoMotivo = usuario?.ultimo_motivo || usuario?.motivo_sancion || '';
-
-  return {
-    avisos: Number.isFinite(avisos) ? Math.min(Math.max(avisos, 0), 3) : 0,
-    ultimo_motivo: String(ultimoMotivo),
-    bloqueadoParaentrar,
-    mensajeBloqueo: ultimoMotivo
-      ? `Motivo: ${ultimoMotivo}`
-      : 'La cuenta fue suspendida por la administración.'
-  };
-};
-
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
   const { totalItems } = useCart();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [textoBusqueda, setTextoBusqueda] = useState(searchParams.get('q') || '');
+  const [terminoBusqueda, setTerminoBusqueda] = useState(
+    searchParams.get('q') || ''
+  );
   const [mostrarHistorial, setMostrarHistorial] = useState(false);
-  const [historialBusquedas, setHistorialBusquedas] = useState<string[]>([]);
+  const [ultimasBusquedas, setUltimasBusquedas] = useState<string[]>([]);
   const [menuCategoriasAbierto, setMenuCategoriasAbierto] = useState(false);
-  const [saldoBilletera, setSaldoBilletera] = useState<number>(0);
-  const [notificacionesNoLeidas, setNotificacionesNoLeidas] = useState<number>(0);
-  const [avisosAcumulados, setAvisosAcumulados] = useState<number>(0);
-  const [ultimoMotivoAviso, setUltimoMotivoAviso] = useState<string>('');
 
-  const buscadorRef = useRef<HTMLFormElement>(null);
+  const [notificacionesNoLeidas, setNotificacionesNoLeidas] = useState(0);
+  const [mensajesNoLeidos, setMensajesNoLeidos] = useState(0);
+  const [direccionPrincipalTexto, setDireccionPrincipalTexto] =
+    useState('Argentina');
 
-  const claveBusquedas = user
-    ? `falu_busquedas_${user.id_usuario}`
-    : 'falu_busquedas_invitado';
+  const buscadorRef = useRef<HTMLDivElement>(null);
+  const categoriasRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setTextoBusqueda(searchParams.get('q') || '');
-  }, [searchParams]);
+  const esAdmin = esUsuarioAdminOSuperAdmin(user);
+  const rolActual = obtenerRolUsuario(user);
 
-  const sincronizarDatosNavbar = () => {
-    const guardadas = JSON.parse(localStorage.getItem(claveBusquedas) || '[]');
-    setHistorialBusquedas(Array.isArray(guardadas) ? guardadas : []);
-
-    if (isAuthenticated && user) {
-      const todasNotif = JSON.parse(
-        localStorage.getItem('falu_notificaciones') || '[]'
-      );
-      const misNoLeidas = todasNotif.filter(
-        (n: any) =>
-          Number(n.id_usuario_destino) === Number(user.id_usuario) && !n.leida
-      ).length;
-      setNotificacionesNoLeidas(misNoLeidas);
-
-      // Verificar si la cuenta tiene avisos (1/3, 2/3, 3/3) o si fue sancionada/baneada
-      const disciplina = obtenerEstadoDisciplinarioUsuario(user.id_usuario, user.email);
-      setAvisosAcumulados(disciplina.avisos || 0);
-      setUltimoMotivoAviso(disciplina.ultimo_motivo || '');
-
-      if (disciplina.bloqueadoParaentrar) {
-        alert(
-          `Tu sesión fue cerrada porque tu cuenta recibió una sanción administrativa:\n${disciplina.mensajeBloqueo}`
-        );
-        logout();
-        navigate('/login');
-      }
-    } else {
+  const actualizarContadoresEnVivo = () => {
+    if (!isAuthenticated || !user) {
       setNotificacionesNoLeidas(0);
-      setAvisosAcumulados(0);
-      setUltimoMotivoAviso('');
-    }
-  };
-
-  useEffect(() => {
-    sincronizarDatosNavbar();
-    window.addEventListener('storage', sincronizarDatosNavbar);
-    window.addEventListener('falu_actualizacion', sincronizarDatosNavbar);
-    return () => {
-      window.removeEventListener('storage', sincronizarDatosNavbar);
-      window.removeEventListener('falu_actualizacion', sincronizarDatosNavbar);
-    };
-  }, [isAuthenticated, user, claveBusquedas]);
-
-  useEffect(() => {
-    const handleClickAfuera = (e: MouseEvent) => {
-      if (buscadorRef.current && !buscadorRef.current.contains(e.target as Node)) {
-        setMostrarHistorial(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickAfuera);
-    return () => document.removeEventListener('mousedown', handleClickAfuera);
-  }, []);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setSaldoBilletera(0);
+      setMensajesNoLeidos(0);
+      setDireccionPrincipalTexto('Argentina');
       return;
     }
 
-    api
-      .get('/wallet/balance')
-      .then((res) => {
-        const saldo = res.data?.saldo_disponible ?? res.data?.saldo ?? 0;
-        setSaldoBilletera(Number(saldo));
-      })
-      .catch(() => setSaldoBilletera(0));
-  }, [isAuthenticated]);
+    // 1. Contador de Notificaciones no leídas
+    const todasNotif = JSON.parse(
+      localStorage.getItem('falu_notificaciones') || '[]'
+    );
+    const misNoLeidas = todasNotif.filter(
+      (n: any) =>
+        Number(n.id_usuario_destino) === Number(user.id_usuario) && !n.leida
+    ).length;
+    setNotificacionesNoLeidas(misNoLeidas);
 
-  const obtenerIniciales = () => {
-    if (!user) return 'IN';
-    const n = user.nombre ? user.nombre.trim()[0] : 'U';
-    const a = user.apellido ? user.apellido.trim()[0] : '';
-    return (n + a).toUpperCase();
+    // 2. Contador de Mensajes de Chat no leídos
+    const conversaciones = JSON.parse(
+      localStorage.getItem('falu_conversaciones_chat') || '[]'
+    );
+    let totalMsgSinLeer = 0;
+    conversaciones.forEach((c: any) => {
+      if (Number(c.id_vendedor) === Number(user.id_usuario)) {
+        totalMsgSinLeer += Number(c.no_leidos_vendedor || 0);
+      } else if (Number(c.id_comprador) === Number(user.id_usuario)) {
+        totalMsgSinLeer += Number(c.no_leidos_comprador || 0);
+      }
+    });
+    setMensajesNoLeidos(totalMsgSinLeer);
+
+    // 3. Dirección principal del perfil
+    const perfiles = JSON.parse(
+      localStorage.getItem('falu_perfiles_usuarios') || '{}'
+    );
+    const miPerfil = perfiles[user.id_usuario];
+    if (
+      miPerfil &&
+      Array.isArray(miPerfil.direcciones) &&
+      miPerfil.direcciones.length > 0
+    ) {
+      const d = miPerfil.direcciones[0];
+      setDireccionPrincipalTexto(`${d.calle} ${d.numero}`);
+    } else {
+      setDireccionPrincipalTexto('Agregar dirección');
+    }
+
+    // 4. Historial de búsqueda (últimas 5)
+    const claveHist = `falu_historial_busqueda_${user.id_usuario}`;
+    const hist: string[] = JSON.parse(localStorage.getItem(claveHist) || '[]');
+    setUltimasBusquedas(hist.slice(0, 5));
   };
 
-  const registrarTerminoBusqueda = (termino: string) => {
+  useEffect(() => {
+    actualizarContadoresEnVivo();
+    window.addEventListener('falu_actualizacion', actualizarContadoresEnVivo);
+    window.addEventListener('storage', actualizarContadoresEnVivo);
+    return () => {
+      window.removeEventListener('falu_actualizacion', actualizarContadoresEnVivo);
+      window.removeEventListener('storage', actualizarContadoresEnVivo);
+    };
+  }, [isAuthenticated, user]);
+
+  useEffect(() => {
+    const cerrarMenusAlClickAfuera = (e: MouseEvent) => {
+      if (
+        buscadorRef.current &&
+        !buscadorRef.current.contains(e.target as Node)
+      ) {
+        setMostrarHistorial(false);
+      }
+      if (
+        categoriasRef.current &&
+        !categoriasRef.current.contains(e.target as Node)
+      ) {
+        setMenuCategoriasAbierto(false);
+      }
+    };
+    document.addEventListener('mousedown', cerrarMenusAlClickAfuera);
+    return () =>
+      document.removeEventListener('mousedown', cerrarMenusAlClickAfuera);
+  }, []);
+
+  const guardarTerminoEnHistorial = (termino: string) => {
     const limpio = termino.trim();
-    if (!limpio) return;
-
-    const actuales: string[] = JSON.parse(
-      localStorage.getItem(claveBusquedas) || '[]'
-    );
-    const sinDuplicados = actuales.filter(
-      (item) => item.toLowerCase() !== limpio.toLowerCase()
-    );
-    const nuevas = [limpio, ...sinDuplicados];
-
-    localStorage.setItem(claveBusquedas, JSON.stringify(nuevas));
-    setHistorialBusquedas(nuevas);
-    window.dispatchEvent(new Event('falu_actualizacion'));
+    if (!limpio || !user) return;
+    const claveHist = `falu_historial_busqueda_${user.id_usuario}`;
+    const actual: string[] = JSON.parse(localStorage.getItem(claveHist) || '[]');
+    const sinDuplicados = [
+      limpio,
+      ...actual.filter((item) => item.toLowerCase() !== limpio.toLowerCase())
+    ];
+    localStorage.setItem(claveHist, JSON.stringify(sinDuplicados));
+    setUltimasBusquedas(sinDuplicados.slice(0, 5));
   };
 
   const ejecutarBusqueda = (termino: string) => {
-    const params = new URLSearchParams(searchParams);
-    if (termino.trim()) {
-      registrarTerminoBusqueda(termino);
-      params.set('q', termino.trim());
+    const limpio = termino.trim();
+    if (limpio) {
+      guardarTerminoEnHistorial(limpio);
+      navigate(`/?q=${encodeURIComponent(limpio)}`);
     } else {
-      params.delete('q');
+      navigate('/');
     }
     setMostrarHistorial(false);
-    navigate(`/?${params.toString()}`);
   };
 
-  const handleBuscar = (e: FormEvent) => {
+  const handleSubmitBusqueda = (e: FormEvent) => {
     e.preventDefault();
-    ejecutarBusqueda(textoBusqueda);
+    ejecutarBusqueda(terminoBusqueda);
   };
 
-  const seleccionarCategoria = (cat: string) => {
-    const params = new URLSearchParams(searchParams);
-    if (cat === 'Todas') {
-      params.delete('categoria');
-    } else {
-      params.set('categoria', cat);
+  const borrarItemHistorial = (terminoABorrar: string) => {
+    if (!user) return;
+    const claveHist = `falu_historial_busqueda_${user.id_usuario}`;
+    const actual: string[] = JSON.parse(localStorage.getItem(claveHist) || '[]');
+    const filtrado = actual.filter((item) => item !== terminoABorrar);
+    localStorage.setItem(claveHist, JSON.stringify(filtrado));
+    setUltimasBusquedas(filtrado.slice(0, 5));
+  };
+
+  // Abre el widget de chat flotante del Footer al tocar "Mensajes" en el Header
+  const abrirChatDesdeHeader = () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
     }
-    setMenuCategoriasAbierto(false);
-    navigate(`/?${params.toString()}`);
+    const botonChatFlotante = document.querySelector(
+      '[data-falu-chat-trigger="true"]'
+    ) as HTMLButtonElement | null;
+    if (botonChatFlotante) {
+      botonChatFlotante.click();
+    } else {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
   };
 
-  const ultimasCincoBusquedas = historialBusquedas.slice(0, 5);
+  const formatearTope99 = (cantidad: number) => {
+    if (cantidad > 99) return '+99';
+    return String(cantidad);
+  };
 
   return (
-    <header className="bg-blue-900 text-white shadow-md sticky top-0 z-40">
-      {/* Constancia visible en la cuenta si el usuario acumula avisos administrativos (1/3 a 3/3) */}
-      {isAuthenticated && avisosAcumulados > 0 && (
-        <div className="bg-amber-500 text-slate-950 text-xs px-4 py-1.5 font-bold">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              Constancia de moderación en tu cuenta: Tenés {avisosAcumulados} de 3 avisos acumulados.
-              {ultimoMotivoAviso ? ` Último motivo: "${ultimoMotivoAviso}".` : ''}
-            </span>
-            <Link to="/notificaciones" className="underline shrink-0">
-              Ver detalles
-            </Link>
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-7xl mx-auto px-4 pt-3 pb-2.5">
+    <header className="bg-blue-900 text-white shadow-md sticky top-0 z-40 w-full max-w-full overflow-x-clip">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 pt-3 pb-2">
         
-        {/* FILA 1: Logo + Buscador + Billetera */}
-        <div className="flex items-center justify-between gap-4 md:gap-8">
-          <Link to="/" className="flex items-center gap-2.5 shrink-0 group">
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
-              <ShoppingBag className="w-6 h-6 text-blue-900" />
+        {/* FILA SUPERIOR: LOGO + BUSCADOR */}
+        <div className="flex items-center justify-between gap-2.5 sm:gap-6">
+          <Link to="/" className="flex items-center gap-2 shrink-0 group">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white text-blue-900 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+              <ShoppingBag className="w-5 h-5" />
             </div>
-            <div className="flex flex-col">
-              <span className="text-2xl font-extrabold tracking-tight leading-none">
+            <div className="leading-none">
+              <span className="text-xl sm:text-2xl font-black tracking-tight block">
                 falú
               </span>
-              <span className="text-[10px] text-blue-200 tracking-widest uppercase">
-                marketplace
+              <span className="text-[8px] sm:text-[9px] tracking-widest uppercase text-blue-200 font-bold">
+                Marketplace
               </span>
             </div>
           </Link>
 
-          <form
-            ref={buscadorRef}
-            onSubmit={handleBuscar}
-            className="flex-1 max-w-2xl relative"
-          >
-            <div className="relative flex items-center bg-white rounded-md shadow-sm overflow-hidden">
+          {/* BUSCADOR CON ÚLTIMAS 5 BÚSQUEDAS */}
+          <div ref={buscadorRef} className="flex-1 max-w-2xl relative min-w-0">
+            <form onSubmit={handleSubmitBusqueda} className="relative flex">
               <input
                 type="text"
-                value={textoBusqueda}
+                value={terminoBusqueda}
                 onFocus={() => setMostrarHistorial(true)}
-                onChange={(e) => setTextoBusqueda(e.target.value)}
+                onChange={(e) => setTerminoBusqueda(e.target.value)}
                 placeholder="Buscar productos, marcas y más..."
-                className="w-full py-2.5 pl-4 pr-12 text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
+                className="w-full pl-3.5 pr-10 py-2 sm:py-2.5 rounded-xl bg-white text-slate-900 text-xs sm:text-sm placeholder:text-slate-400 focus:outline-none shadow-xs"
               />
               <button
                 type="submit"
-                className="absolute right-0 h-full px-3.5 text-slate-500 hover:text-blue-600 border-l border-slate-200 flex items-center justify-center transition-colors"
+                className="absolute right-0 inset-y-0 px-3 text-slate-500 hover:text-blue-900 flex items-center justify-center"
               >
                 <Search className="w-4 h-4" />
               </button>
-            </div>
+            </form>
 
-            {mostrarHistorial && ultimasCincoBusquedas.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-md shadow-xl border border-slate-200 py-1.5 z-50 text-slate-800">
-                {ultimasCincoBusquedas.map((item, idx) => (
-                  <button
+            {mostrarHistorial && ultimasBusquedas.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50 text-slate-800">
+                <div className="px-3.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Últimas búsquedas
+                </div>
+                {ultimasBusquedas.map((item, idx) => (
+                  <div
                     key={idx}
-                    type="button"
-                    onClick={() => {
-                      setTextoBusqueda(item);
-                      ejecutarBusqueda(item);
-                    }}
-                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-100 flex items-center gap-3.5 transition-colors"
+                    className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-50 text-xs cursor-pointer"
                   >
-                    <Clock className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span className="font-medium text-slate-800 truncate">
-                      {item}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTerminoBusqueda(item);
+                        ejecutarBusqueda(item);
+                      }}
+                      className="flex items-center gap-2 flex-1 text-left font-medium text-slate-700"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{item}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        borrarItemHistorial(item);
+                      }}
+                      className="text-slate-400 hover:text-red-500 p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
-          </form>
-
-          <div className="hidden lg:flex items-center gap-2 bg-blue-950/90 border border-blue-700/60 px-4 py-1.5 rounded-full text-xs">
-            <Wallet className="w-4 h-4 text-blue-300 shrink-0" />
-            <span className="text-blue-100">Billetera:</span>
-            <strong className="text-white font-bold">
-              ARS ${saldoBilletera.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-            </strong>
           </div>
         </div>
 
-        {/* FILA 2: Ubicación + Categorías/Vender + [Admin + Perfil o Login] + Mis productos/Mis compras/Favoritos/Notificaciones/Carrito */}
-        <div className="flex items-center justify-between mt-3 pt-1 text-xs md:text-sm gap-2">
+        {/* FILA INFERIOR: BARRA DESLIZABLE HORIZONTAL EN CELULAR (Sin desbordar la pantalla) */}
+        <div className="mt-2.5 pt-2 border-t border-blue-800/70 flex items-center justify-between gap-4 overflow-x-auto whitespace-nowrap pb-1.5 scrollbar-thin">
           
-          <div className="flex items-center gap-1.5 text-blue-100 px-2 py-1 shrink-0">
-            <MapPin className="w-4 h-4 text-blue-300 shrink-0" />
-            <div className="text-left leading-tight">
-              <p className="text-[10px] text-blue-200">
-                {isAuthenticated && user ? `Usuario: ${user.nombre}` : 'Modo Invitado'}
-              </p>
-              <p className="font-semibold text-xs">Argentina</p>
-            </div>
-          </div>
-
-          <nav className="hidden md:flex items-center gap-6 text-blue-100 font-medium">
-            <div
-              className="relative"
-              onMouseEnter={() => setMenuCategoriasAbierto(true)}
-              onMouseLeave={() => setMenuCategoriasAbierto(false)}
+          {/* Izquierda: Ubicación + Categorías + Vender + Admin */}
+          <div className="flex items-center gap-3 sm:gap-5 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate(isAuthenticated ? '/perfil' : '/login')}
+              className="flex items-center gap-1.5 text-left hover:text-blue-200 transition-colors shrink-0"
             >
+              <MapPin className="w-4 h-4 text-blue-300 shrink-0" />
+              <div className="leading-tight">
+                <span className="text-[10px] text-blue-200 block">
+                  {isAuthenticated ? `Enviar a ${user?.nombre}` : 'Modo Invitado'}
+                </span>
+                <span className="text-xs font-bold block max-w-28 truncate">
+                  {direccionPrincipalTexto}
+                </span>
+              </div>
+            </button>
+
+            <div ref={categoriasRef} className="relative shrink-0">
               <button
                 type="button"
                 onClick={() => setMenuCategoriasAbierto(!menuCategoriasAbierto)}
-                className="flex items-center gap-1 hover:text-white py-1 transition-colors"
+                className="flex items-center gap-1 text-xs font-semibold hover:text-blue-200 py-1"
               >
                 <span>Categorías</span>
-                <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+                <ChevronDown className="w-3.5 h-3.5" />
               </button>
 
               {menuCategoriasAbierto && (
-                <div className="absolute left-0 top-full pt-2 w-64 z-50">
-                  <div className="w-3 h-3 bg-neutral-800 rotate-45 ml-6 -mb-1.5" />
-                  <div className="bg-neutral-800 text-neutral-100 rounded-md shadow-2xl py-2 border border-neutral-700">
-                    {CATEGORIAS_FALU.map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => seleccionarCategoria(cat)}
-                        className="w-full px-5 py-2.5 text-left text-sm hover:bg-blue-600 hover:text-white flex items-center justify-between transition-colors"
-                      >
-                        <span>{cat}</span>
-                        <ChevronRight className="w-4 h-4 opacity-60" />
-                      </button>
-                    ))}
-                  </div>
+                <div className="fixed sm:absolute left-3 sm:left-0 top-28 sm:top-full mt-1 w-56 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-200 py-2 z-50">
+                  {CATEGORIAS_FALU.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => {
+                        setMenuCategoriasAbierto(false);
+                        navigate(
+                          cat === 'Todas'
+                            ? '/'
+                            : `/?categoria=${encodeURIComponent(cat)}`
+                        );
+                      }}
+                      className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                    >
+                      {cat}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => navigate(isAuthenticated ? '/vender' : '/login')}
-              className="hover:text-white transition-colors"
+            <Link
+              to={isAuthenticated ? '/vender' : '/login'}
+              className="text-xs font-semibold hover:text-blue-200 transition-colors shrink-0"
             >
               Vender
-            </button>
-          </nav>
+            </Link>
 
-          {/* BLOQUE DERECHO COMPLETO: Siempre muestra todo sin ocultar los accesos */}
-          <div className="flex items-center gap-3.5 text-xs md:text-sm font-medium">
+            {esAdmin && (
+              <Link
+                to="/admin"
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold shrink-0 transition-transform hover:scale-105 ${
+                  rolActual === 'superadmin'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-blue-600 text-white border border-blue-400'
+                }`}
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span>
+                  {rolActual === 'superadmin' ? 'Super Admin' : 'Panel Admin'}
+                </span>
+              </Link>
+            )}
+          </div>
+
+          {/* Derecha: Usuario + Mis Productos + Mis Compras + Favoritos + Mensajes + Notificaciones + Carrito */}
+          <div className="flex items-center gap-3.5 sm:gap-4 text-xs font-semibold shrink-0">
             {isAuthenticated && user ? (
-              <div className="flex items-center gap-2.5">
-                
-                {/* Botón Admin / Super Admin EXCLUSIVAMENTE a la izquierda del perfil */}
-                {esUsuarioAdminOSuperAdmin(user) && (
-                  <Link
-                    to="/admin"
-                    className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs px-3 py-1.5 rounded-full shadow-xs transition-colors shrink-0"
-                  >
-                    <Shield className="w-3.5 h-3.5" />
-                    <span>
-                      {obtenerRolUsuario(user) === 'superadmin'
-                        ? 'Super Admin'
-                        : 'Panel Admin'}
-                    </span>
-                  </Link>
-                )}
-
+              <div className="flex items-center gap-2 shrink-0">
                 <Link
                   to="/perfil"
-                  title="Ir a mi perfil"
-                  className="flex items-center gap-2 hover:opacity-90 transition-opacity"
+                  className="inline-flex items-center gap-1.5 bg-blue-800/80 hover:bg-blue-800 px-3 py-1.5 rounded-full text-white font-bold transition-colors"
                 >
-                  <div className="w-7 h-7 rounded-full bg-white text-blue-900 font-extrabold text-xs flex items-center justify-center shadow-sm shrink-0">
-                    {obtenerIniciales()}
-                  </div>
-                  <span className="hidden sm:inline font-semibold uppercase tracking-wide text-xs text-white">
-                    {user.nombre}
-                  </span>
+                  <UserIcon className="w-3.5 h-3.5 text-blue-200" />
+                  <span className="max-w-28 truncate">{user.nombre}</span>
                 </Link>
-
                 <button
                   type="button"
                   onClick={() => {
@@ -398,75 +371,89 @@ export default function Navbar() {
                     navigate('/');
                   }}
                   title="Cerrar sesión"
-                  className="text-blue-200 hover:text-red-300 transition-colors"
+                  className="p-1.5 rounded-full bg-blue-800/50 hover:bg-red-600 text-blue-100 hover:text-white transition-colors"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
             ) : (
-              /* Si está deslogueado, siempre muestra Creá tu cuenta e Ingresá */
-              <div className="flex items-center gap-2.5">
-                <Link
-                  to="/register"
-                  className="text-blue-100 hover:text-white transition-colors whitespace-nowrap"
-                >
+              <div className="flex items-center gap-2.5 shrink-0">
+                <Link to="/register" className="hover:text-blue-200">
                   Creá tu cuenta
                 </Link>
                 <Link
                   to="/login"
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1 rounded-full font-semibold transition-colors whitespace-nowrap"
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-1.5 rounded-full transition-colors"
                 >
                   Ingresá
                 </Link>
               </div>
             )}
 
-            {/* Estos 5 accesos quedan FUERA del ternario para verse SIEMPRE */}
             <Link
               to={isAuthenticated ? '/mis-productos' : '/login'}
-              className="hidden sm:inline text-blue-100 hover:text-white transition-colors whitespace-nowrap"
+              className="hover:text-blue-200 shrink-0"
             >
               Mis productos
             </Link>
 
             <Link
               to={isAuthenticated ? '/mis-compras' : '/login'}
-              className="hidden sm:inline text-blue-100 hover:text-white transition-colors whitespace-nowrap"
+              className="hover:text-blue-200 shrink-0"
             >
               Mis compras
             </Link>
 
-            <button
-              type="button"
-              onClick={() => navigate(isAuthenticated ? '/favoritos' : '/login')}
-              className="hidden sm:flex items-center gap-1 text-blue-100 hover:text-white transition-colors"
+            <Link
+              to={isAuthenticated ? '/favoritos' : '/login'}
+              className="inline-flex items-center gap-1 hover:text-blue-200 shrink-0"
             >
               <span>Favoritos</span>
               <Heart className="w-3.5 h-3.5" />
+            </Link>
+
+            {/* Botón directo de Mensajes / Chat en la barra para celular y PC */}
+            <button
+              type="button"
+              onClick={abrirChatDesdeHeader}
+              title="Mis mensajes"
+              className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span className="sm:hidden text-[11px]">Mensajes</span>
+              {mensajesNoLeidos > 0 && (
+                <span className=" -top-1 -right-1.5 bg-red-600 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
+                  {formatearTope99(mensajesNoLeidos)}
+                </span>
+              )}
             </button>
 
+            {/* Campanita de Notificaciones en tiempo real */}
             <Link
               to={isAuthenticated ? '/notificaciones' : '/login'}
               title="Notificaciones"
-              className="relative text-blue-100 hover:text-white transition-colors"
+              className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
             >
-              <Bell className="w-5 h-5" />
+              <Bell className="w-4 h-4" />
+              <span className="sm:hidden text-[11px]">Alertas</span>
               {notificacionesNoLeidas > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[10px] font-bold px-1 min-w-4 h-4 rounded-full flex items-center justify-center">
-                  {notificacionesNoLeidas > 99 ? '+99' : notificacionesNoLeidas}
+                <span className=" -top-1 -right-1.5 bg-red-600 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
+                  {formatearTope99(notificacionesNoLeidas)}
                 </span>
               )}
             </Link>
 
+            {/* Carrito */}
             <Link
               to="/carrito"
-              title="Ver carrito de compras"
-              className="relative text-blue-100 hover:text-white transition-colors"
+              title="Carrito de compras"
+              className="relative p-1.5 hover:text-blue-200 transition-colors shrink-0 inline-flex items-center gap-1"
             >
-              <ShoppingCart className="w-5 h-5" />
+              <ShoppingCart className="w-4 h-4" />
+              <span className="sm:hidden text-[11px]">Carrito</span>
               {totalItems > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-blue-500 text-white text-[10px] font-bold px-1 min-w-4 h-4 rounded-full flex items-center justify-center">
-                  {totalItems > 99 ? '+99' : totalItems}
+                <span className=" -top-1 -right-1.5 bg-amber-400 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full leading-tight">
+                  {formatearTope99(totalItems)}
                 </span>
               )}
             </Link>
