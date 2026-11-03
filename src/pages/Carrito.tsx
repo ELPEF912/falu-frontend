@@ -17,7 +17,10 @@ import Footer from '../components/Footer';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { verificarPerfilCompleto } from './Perfil';
-import { registrarEventosPostCompra } from './Notificaciones';
+import {
+  registrarEventosPostCompra,
+  notificarProductoSinStock
+} from './Notificaciones';
 import api from '../services/api';
 
 export default function Carrito() {
@@ -34,7 +37,6 @@ export default function Carrito() {
   const [compraExitosa, setCompraExitosa] = useState(false);
   const [stockRealMapa, setStockRealMapa] = useState<Record<number, number>>({});
 
-  // Consulta el stock real actual desde Neon PostgreSQL cada vez que se abre o actualiza el carrito
   const consultarStockActualizado = async () => {
     try {
       const res = await api.get('/products');
@@ -64,8 +66,10 @@ export default function Carrito() {
   useEffect(() => {
     consultarStockActualizado();
     window.addEventListener('falu_actualizacion', consultarStockActualizado);
+    window.addEventListener('storage', consultarStockActualizado);
     return () => {
       window.removeEventListener('falu_actualizacion', consultarStockActualizado);
+      window.removeEventListener('storage', consultarStockActualizado);
     };
   }, []);
 
@@ -151,6 +155,14 @@ export default function Carrito() {
       const stockBase = obtenerStockRealItem(prod);
       const nuevoStock = Math.max(0, stockBase - itemComprado.cantidad);
       const prodModificado = { ...prod, stock: nuevoStock };
+
+      if (nuevoStock === 0) {
+        notificarProductoSinStock({
+          id_producto: prod.id_producto,
+          titulo_producto: prod.titulo,
+          id_vendedor: Number(prod.id_vendedor || 1)
+        });
+      }
 
       api.put(`/products/${prod.id_producto}`, prodModificado).catch(() => {});
       return prodModificado;
@@ -320,7 +332,10 @@ export default function Carrito() {
                           {item.titulo}
                         </Link>
                         <p className="text-base font-extrabold text-slate-900 mt-1">
-                          ARS ${(precioUnitario * item.cantidad).toLocaleString('es-AR')}
+                          ARS $
+                          {(precioUnitario * item.cantidad).toLocaleString(
+                            'es-AR'
+                          )}
                         </p>
 
                         {sinStock ? (
@@ -331,11 +346,14 @@ export default function Carrito() {
                         ) : superaStockReal ? (
                           <div className="mt-1.5 flex flex-wrap items-center gap-2">
                             <span className="text-[11px] font-extrabold text-red-700 bg-red-100 border border-red-200 px-2.5 py-0.5 rounded-full">
-                              ¡Sin stock suficiente! Solo quedan {stockMax} u. (tenés {item.cantidad})
+                              ¡Sin stock suficiente! Solo quedan {stockMax} u.
+                              (tenés {item.cantidad})
                             </span>
                             <button
                               type="button"
-                              onClick={() => cambiarCantidad(item.id_producto, stockMax)}
+                              onClick={() =>
+                                cambiarCantidad(item.id_producto, stockMax)
+                              }
                               className="text-[11px] font-extrabold text-blue-700 underline hover:text-blue-900"
                             >
                               Ajustar a {stockMax} u.
@@ -343,7 +361,8 @@ export default function Carrito() {
                           </div>
                         ) : (
                           <span className="text-[11px] text-slate-400">
-                            ARS ${precioUnitario.toLocaleString('es-AR')} c/u — (Stock real disponible: {stockMax})
+                            ARS ${precioUnitario.toLocaleString('es-AR')} c/u —
+                            (Stock real disponible: {stockMax})
                           </span>
                         )}
                       </div>
