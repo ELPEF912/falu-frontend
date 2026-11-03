@@ -171,30 +171,6 @@ export function obtenerRolUsuario(user: any): RolSistema {
   return 'usuario';
 }
 
-export function obtenerRolUsuario(user: any): RolSistema {
-  if (!user) return 'usuario';
-
-  if (esCuentaSuperAdminOficial(user)) {
-    return 'superadmin';
-  }
-
-  const listaUsuarios: UsuarioRegistradoAdmin[] = JSON.parse(
-    localStorage.getItem('falu_usuarios_sistema') || '[]'
-  );
-
-  const encontrado = listaUsuarios.find(
-    (u) =>
-      Number(u.id_usuario) === Number(user.id_usuario) ||
-      u.email?.toLowerCase() === user.email?.toLowerCase()
-  );
-
-  if (encontrado && encontrado.rol === 'admin') {
-    return 'admin';
-  }
-
-  return 'usuario';
-}
-
 export function esUsuarioAdminOSuperAdmin(user: any): boolean {
   const rol = obtenerRolUsuario(user);
   return rol === 'admin' || rol === 'superadmin';
