@@ -64,13 +64,7 @@ export default function Carrito() {
   };
 
   useEffect(() => {
-    consultarStockActualizado();
-    window.addEventListener('falu_actualizacion', consultarStockActualizado);
-    window.addEventListener('storage', consultarStockActualizado);
-    return () => {
-      window.removeEventListener('falu_actualizacion', consultarStockActualizado);
-      window.removeEventListener('storage', consultarStockActualizado);
-    };
+      consultarStockActualizado();
   }, []);
 
   const obtenerStockRealItem = (item: any): number => {

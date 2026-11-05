@@ -392,22 +392,29 @@ const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
     );
   };
 
-  useEffect(() => {
+useEffect(() => {
     const cargarDatosIniciales = async () => {
       setCargando(true);
       setIndiceFoto(0);
       setMensajeCompra('');
 
-      try {
-        const res = await api.get('/products');
-        if (Array.isArray(res.data) && res.data.length > 0) {
-          localStorage.setItem(
-            'falu_productos_locales',
-            JSON.stringify(res.data)
-          );
+      const guardadosLocal = JSON.parse(
+        localStorage.getItem('falu_productos_locales') || '[]'
+      );
+
+      // Solo descarga de la base de datos si todavía no hay productos en memoria
+      if (!Array.isArray(guardadosLocal) || guardadosLocal.length === 0) {
+        try {
+          const res = await api.get('/products');
+          if (Array.isArray(res.data) && res.data.length > 0) {
+            localStorage.setItem(
+              'falu_productos_locales',
+              JSON.stringify(res.data)
+            );
+          }
+        } catch {
+          // Usa copia local
         }
-      } catch {
-        // Fallback local
       }
 
       sincronizarVistaDesdeStorage();
@@ -416,7 +423,7 @@ const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
 
     cargarDatosIniciales();
   }, [id, user]);
-
+  
   useEffect(() => {
     window.addEventListener('falu_actualizacion', sincronizarVistaDesdeStorage);
     window.addEventListener('storage', sincronizarVistaDesdeStorage);
