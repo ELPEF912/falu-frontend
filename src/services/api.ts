@@ -32,6 +32,39 @@ let motorIniciado = false;
 let ultimaSincronizacionMs = 0;
 let ultimaEscrituraLocalMs = 0;
 
+// Guarda en localStorage sin romper la aplicación si el navegador llega al límite de 5 MB
+function guardarSeguroEnLocalStorage(
+  setItemOriginal: (k: string, v: string) => void,
+  clave: string,
+  valor: string
+) {
+  try {
+    setItemOriginal.call(window.localStorage, clave, valor);
+  } catch {
+    // Si se llenaron los 5 MB del navegador, limpiamos miniaturas pesadas de compras/auditoría y reintentamos
+    try {
+      const compras = JSON.parse(
+        window.localStorage.getItem('falu_compras_usuarios') || '[]'
+      );
+      if (Array.isArray(compras) && compras.length > 0) {
+        const comprasLivianas = compras.map((c: any) => ({
+          ...c,
+          imagen_snapshot: null
+        }));
+        setItemOriginal.call(
+          window.localStorage,
+          'falu_compras_usuarios',
+          JSON.stringify(comprasLivianas)
+        );
+      }
+      window.localStorage.removeItem('falu_auditoria_logs');
+      setItemOriginal.call(window.localStorage, clave, valor);
+    } catch {
+      // Aunque el navegador local no tenga más espacio, permitimos que continúe hacia Neon
+    }
+  }
+}
+
 export async function sincronizarDatosPuntualesDesdeNube(
   forzar = false
 ): Promise<Record<string, any> | null> {
@@ -59,7 +92,6 @@ export async function sincronizarDatosPuntualesDesdeNube(
         const valorRemoto = store[clave];
         const valorLocalActual = window.localStorage.getItem(clave);
 
-        // No sobrescribir si el remoto viene vacío pero localmente ya hay datos cargados
         if (
           Array.isArray(valorRemoto) &&
           valorRemoto.length === 0 &&
@@ -70,8 +102,25 @@ export async function sincronizarDatosPuntualesDesdeNube(
           continue;
         }
 
-        setItemOriginal.call(
-          window.localStorage,
+        // Fusionar perfiles de distintas cuentas en lugar de pisarlos
+        if (
+          clave === 'falu_perfiles_usuarios' &&
+          valorRemoto &&
+          typeof valorRemoto === 'object' &&
+          !Array.isArray(valorRemoto)
+        ) {
+          const perfilesLocales = JSON.parse(valorLocalActual || '{}');
+          const fusionados = { ...valorRemoto, ...perfilesLocales };
+          guardarSeguroEnLocalStorage(
+            setItemOriginal,
+            clave,
+            JSON.stringify(fusionados)
+          );
+          continue;
+        }
+
+        guardarSeguroEnLocalStorage(
+          setItemOriginal,
           clave,
           JSON.stringify(valorRemoto)
         );
@@ -116,8 +165,8 @@ export async function sincronizarSoloChatBajoDemanda(): Promise<void> {
       const unificados = Array.from(mapa.values());
       const setItemOriginal = Storage.prototype.setItem;
       aplicandoDatosDelServidor = true;
-      setItemOriginal.call(
-        window.localStorage,
+      guardarSeguroEnLocalStorage(
+        setItemOriginal,
         'falu_conversaciones_chat',
         JSON.stringify(unificados)
       );
@@ -137,7 +186,9 @@ function iniciarMotorBajoDemanda() {
 
   Storage.prototype.setItem = function (clave: string, valor: string) {
     const valorAnterior = window.localStorage.getItem(clave);
-    setItemOriginal.call(this, clave, valor);
+
+    // Nunca bloquear la ejecución aunque localStorage esté al límite de 5 MB
+    guardarSeguroEnLocalStorage(setItemOriginal, clave, valor);
 
     if (valorAnterior === valor) return;
 
@@ -158,6 +209,7 @@ function iniciarMotorBajoDemanda() {
         }
         api.post('/sync', { clave, datos: datosParseados }).catch(() => {});
       } catch {
+        // Ignorar si no es JSON
       }
     }
   };

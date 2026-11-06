@@ -461,11 +461,15 @@ export default function ProductDetail() {
       setMensajeCompra('');
       setCompraCanceladaAviso('');
 
-      const guardadosLocal = JSON.parse(
+      const guardadosLocal: ProductoDetalle[] = JSON.parse(
         localStorage.getItem('falu_productos_locales') || '[]'
       );
 
-      if (!Array.isArray(guardadosLocal) || guardadosLocal.length === 0) {
+      const existeEsteProducto =
+        Array.isArray(guardadosLocal) &&
+        guardadosLocal.some((p) => String(p.id_producto) === String(id));
+
+      if (!existeEsteProducto) {
         try {
           const res = await api.get('/products');
           if (Array.isArray(res.data) && res.data.length > 0) {
