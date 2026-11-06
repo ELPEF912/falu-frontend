@@ -315,7 +315,7 @@ export default function Footer() {
             <span>Falú Marketplace © {new Date().getFullYear()}</span>
           </div>
           <p className="text-slate-500 text-center sm:text-right">
-            Plataforma de comercio electrónico — Todos los derechos reservados
+            Arreglo una cosa y rompo 3, morite frontend, aguante el backend
           </p>
         </div>
       </footer>
