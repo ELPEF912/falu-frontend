@@ -30,6 +30,71 @@ export const CATEGORIAS_FALU = [
   'Vehículos y Repuestos'
 ];
 
+export function obtenerDireccionConNumeroUsuario(idUsuario?: number): string | null {
+  if (!idUsuario) return null;
+
+  const formatearDir = (d: any): string | null => {
+    if (!d || typeof d !== 'object') return null;
+    const calle = String(d.calle || d.direccion || d.domicilio || '').trim();
+    const numero = String(d.numero || d.altura || d.nro || '').trim();
+    if (!calle) return null;
+    return numero ? `${calle} ${numero}` : calle;
+  };
+
+  try {
+    // 1. Buscar en el diccionario general falu_perfiles_usuarios
+    const perfiles = JSON.parse(
+      localStorage.getItem('falu_perfiles_usuarios') || '{}'
+    );
+    const miPerfil = perfiles[idUsuario] || perfiles[String(idUsuario)];
+    if (miPerfil) {
+      if (Array.isArray(miPerfil.direcciones) && miPerfil.direcciones.length > 0) {
+        const dirPrincipal =
+          miPerfil.direcciones.find((d: any) => d.principal || d.predeterminada) ||
+          miPerfil.direcciones[0];
+        const texto = formatearDir(dirPrincipal);
+        if (texto) return texto;
+      }
+      const textoDirecto = formatearDir(miPerfil);
+      if (textoDirecto) return textoDirecto;
+    }
+
+    // 2. Buscar en clave individual falu_perfil_{id} o falu_direcciones_{id}
+    const perfilIndividual = JSON.parse(
+      localStorage.getItem(`falu_perfil_${idUsuario}`) || 'null'
+    );
+    if (perfilIndividual) {
+      if (
+        Array.isArray(perfilIndividual.direcciones) &&
+        perfilIndividual.direcciones.length > 0
+      ) {
+        const dirP =
+          perfilIndividual.direcciones.find(
+            (d: any) => d.principal || d.predeterminada
+          ) || perfilIndividual.direcciones[0];
+        const texto = formatearDir(dirP);
+        if (texto) return texto;
+      }
+      const textoInd = formatearDir(perfilIndividual);
+      if (textoInd) return textoInd;
+    }
+
+    const dirsIndividuales = JSON.parse(
+      localStorage.getItem(`falu_direcciones_${idUsuario}`) || '[]'
+    );
+    if (Array.isArray(dirsIndividuales) && dirsIndividuales.length > 0) {
+      const dirP =
+        dirsIndividuales.find((d: any) => d.principal || d.predeterminada) ||
+        dirsIndividuales[0];
+      const texto = formatearDir(dirP);
+      if (texto) return texto;
+    }
+  } catch {
+  }
+
+  return null;
+}
+
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
   const { totalItems } = useCart();
@@ -73,21 +138,9 @@ export default function Navbar() {
     ).length;
     setNotificacionesNoLeidas(misNoLeidas);
 
-    // 2. Dirección principal del perfil
-    const perfiles = JSON.parse(
-      localStorage.getItem('falu_perfiles_usuarios') || '{}'
-    );
-    const miPerfil = perfiles[user.id_usuario];
-    if (
-      miPerfil &&
-      Array.isArray(miPerfil.direcciones) &&
-      miPerfil.direcciones.length > 0
-    ) {
-      const d = miPerfil.direcciones[0];
-      setDireccionPrincipalTexto(`${d.calle} ${d.numero}`);
-    } else {
-      setDireccionPrincipalTexto('Agregar dirección');
-    }
+    // 2. Dirección con calle y número
+    const dirConNumero = obtenerDireccionConNumeroUsuario(user.id_usuario);
+    setDireccionPrincipalTexto(dirConNumero || 'Agregar dirección');
 
     // 3. Historial de búsqueda (últimas 5)
     const claveHist = `falu_historial_busqueda_${user.id_usuario}`;
@@ -99,9 +152,11 @@ export default function Navbar() {
     actualizarContadoresEnVivo();
     window.addEventListener('falu_actualizacion', actualizarContadoresEnVivo);
     window.addEventListener('storage', actualizarContadoresEnVivo);
+    window.addEventListener('focus', actualizarContadoresEnVivo);
     return () => {
       window.removeEventListener('falu_actualizacion', actualizarContadoresEnVivo);
       window.removeEventListener('storage', actualizarContadoresEnVivo);
+      window.removeEventListener('focus', actualizarContadoresEnVivo);
     };
   }, [isAuthenticated, user]);
 
@@ -126,7 +181,11 @@ export default function Navbar() {
   }, []);
 
   const toggleMenuCategorias = () => {
-    if (!menuCategoriasAbierto && botonCategoriasRef.current && contenedorHeaderRef.current) {
+    if (
+      !menuCategoriasAbierto &&
+      botonCategoriasRef.current &&
+      contenedorHeaderRef.current
+    ) {
       const rectBoton = botonCategoriasRef.current.getBoundingClientRect();
       const rectHeader = contenedorHeaderRef.current.getBoundingClientRect();
       const leftCalculado = Math.max(12, rectBoton.left - rectHeader.left);
@@ -184,7 +243,6 @@ export default function Navbar() {
         ref={contenedorHeaderRef}
         className="max-w-7xl mx-auto px-3 sm:px-4 pt-3 pb-2 relative"
       >
-        {/* FILA SUPERIOR: LOGO + BUSCADOR */}
         <div className="flex items-center justify-between gap-2.5 sm:gap-6">
           <Link to="/" className="flex items-center gap-2 shrink-0 group">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white text-blue-900 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
@@ -200,7 +258,6 @@ export default function Navbar() {
             </div>
           </Link>
 
-          {/* BUSCADOR CON ÚLTIMAS 5 BÚSQUEDAS */}
           <div ref={buscadorRef} className="flex-1 max-w-2xl relative min-w-0">
             <form onSubmit={handleSubmitBusqueda} className="relative flex">
               <input
@@ -257,11 +314,8 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* FILA INFERIOR: BARRA NAVEGACIÓN (Deslizable en celular, fija en PC) */}
         <div ref={categoriasRef}>
           <div className="mt-2.5 pt-2 border-t border-blue-800/70 flex items-center justify-between gap-4 overflow-x-auto lg:overflow-visible whitespace-nowrap pb-1">
-            
-            {/* Izquierda: Ubicación + Categorías + Vender + Admin */}
             <div className="flex items-center gap-3 sm:gap-5 shrink-0">
               <button
                 type="button"
@@ -273,7 +327,7 @@ export default function Navbar() {
                   <span className="text-[10px] text-blue-200 block">
                     {isAuthenticated ? `Enviar a ${user?.nombre}` : 'Modo Invitado'}
                   </span>
-                  <span className="text-xs font-bold block max-w-28 truncate">
+                  <span className="text-xs font-bold block max-w-36 truncate">
                     {direccionPrincipalTexto}
                   </span>
                 </div>
@@ -317,7 +371,6 @@ export default function Navbar() {
               )}
             </div>
 
-            {/* Derecha: Usuario + Mis Productos + Mis Compras + Favoritos + Notificaciones + Carrito */}
             <div className="flex items-center gap-3.5 sm:gap-4 text-xs font-semibold shrink-0">
               {isAuthenticated && user ? (
                 <div className="flex items-center gap-2 shrink-0">
@@ -376,7 +429,6 @@ export default function Navbar() {
                 <Heart className="w-3.5 h-3.5" />
               </Link>
 
-              {/* Campanita de Notificaciones */}
               <Link
                 to={isAuthenticated ? '/notificaciones' : '/login'}
                 title="Notificaciones"
@@ -390,7 +442,6 @@ export default function Navbar() {
                 )}
               </Link>
 
-              {/* Carrito */}
               <Link
                 to="/carrito"
                 title="Carrito de compras"
@@ -406,7 +457,6 @@ export default function Navbar() {
             </div>
           </div>
 
-          {/* MENÚ DESPLEGABLE DE CATEGORÍAS (Fuera del scroll para que nunca se corte) */}
           {menuCategoriasAbierto && (
             <div
               style={{ left: `${posicionMenuLeft}px` }}
@@ -432,7 +482,6 @@ export default function Navbar() {
             </div>
           )}
         </div>
-
       </div>
     </header>
   );

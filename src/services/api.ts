@@ -22,19 +22,25 @@ const CLAVES_NUBE = new Set([
   'falu_compras_usuarios',
   'falu_usuarios_sistema',
   'falu_auditoria_logs',
-  'falu_seguidores_tiendas'
+  'falu_seguidores_tiendas',
+  'falu_perfiles_usuarios'
 ]);
 
 let aplicandoDatosDelServidor = false;
 let cargaInicialCompletada = false;
 let motorIniciado = false;
 let ultimaSincronizacionMs = 0;
+let ultimaEscrituraLocalMs = 0;
 
-// Sincroniza datos bajo demanda (con freno de 15 segundos para evitar descargas repetidas en useEffect)
 export async function sincronizarDatosPuntualesDesdeNube(
   forzar = false
 ): Promise<Record<string, any> | null> {
   const ahora = Date.now();
+
+  if (ahora - ultimaEscrituraLocalMs < 4000) {
+    return null;
+  }
+
   if (!forzar && cargaInicialCompletada && ahora - ultimaSincronizacionMs < 15000) {
     return null;
   }
@@ -50,10 +56,24 @@ export async function sincronizarDatosPuntualesDesdeNube(
 
     for (const clave of CLAVES_NUBE) {
       if (store[clave] !== undefined) {
+        const valorRemoto = store[clave];
+        const valorLocalActual = window.localStorage.getItem(clave);
+
+        // No sobrescribir si el remoto viene vacío pero localmente ya hay datos cargados
+        if (
+          Array.isArray(valorRemoto) &&
+          valorRemoto.length === 0 &&
+          valorLocalActual &&
+          valorLocalActual !== '[]' &&
+          clave !== 'falu_productos_locales'
+        ) {
+          continue;
+        }
+
         setItemOriginal.call(
           window.localStorage,
           clave,
-          JSON.stringify(store[clave])
+          JSON.stringify(valorRemoto)
         );
       }
     }
@@ -69,18 +89,37 @@ export async function sincronizarDatosPuntualesDesdeNube(
   }
 }
 
-// Consulta liviana exclusiva para actualizar solo el chat cuando el usuario abre la ventana de mensajes
 export async function sincronizarSoloChatBajoDemanda(): Promise<void> {
+  if (Date.now() - ultimaEscrituraLocalMs < 3000) return;
+
   try {
     const res = await api.get('/sync?clave=falu_conversaciones_chat');
     const chatsRemotos = res.data?.datos;
-    if (Array.isArray(chatsRemotos)) {
+    if (Array.isArray(chatsRemotos) && chatsRemotos.length > 0) {
+      const chatsLocales = JSON.parse(
+        window.localStorage.getItem('falu_conversaciones_chat') || '[]'
+      );
+
+      const mapa = new Map<number, any>();
+      chatsLocales.forEach((c: any) => mapa.set(Number(c.id_conversacion), c));
+      chatsRemotos.forEach((c: any) => {
+        const existente = mapa.get(Number(c.id_conversacion));
+        if (
+          !existente ||
+          (Array.isArray(c.mensajes) &&
+            c.mensajes.length >= (existente.mensajes?.length || 0))
+        ) {
+          mapa.set(Number(c.id_conversacion), c);
+        }
+      });
+
+      const unificados = Array.from(mapa.values());
       const setItemOriginal = Storage.prototype.setItem;
       aplicandoDatosDelServidor = true;
       setItemOriginal.call(
         window.localStorage,
         'falu_conversaciones_chat',
-        JSON.stringify(chatsRemotos)
+        JSON.stringify(unificados)
       );
       aplicandoDatosDelServidor = false;
       window.dispatchEvent(new Event('falu_nuevo_mensaje_chat'));
@@ -96,12 +135,10 @@ function iniciarMotorBajoDemanda() {
 
   const setItemOriginal = Storage.prototype.setItem;
 
-  // Solo envía a la base de datos la clave exacta que el usuario acaba de modificar
   Storage.prototype.setItem = function (clave: string, valor: string) {
     const valorAnterior = window.localStorage.getItem(clave);
     setItemOriginal.call(this, clave, valor);
 
-    // Si el valor no cambió, no gasta red enviándolo a Neon
     if (valorAnterior === valor) return;
 
     if (
@@ -109,6 +146,7 @@ function iniciarMotorBajoDemanda() {
       !aplicandoDatosDelServidor &&
       CLAVES_NUBE.has(clave)
     ) {
+      ultimaEscrituraLocalMs = Date.now();
       try {
         const datosParseados = JSON.parse(valor);
         if (
@@ -120,12 +158,10 @@ function iniciarMotorBajoDemanda() {
         }
         api.post('/sync', { clave, datos: datosParseados }).catch(() => {});
       } catch {
-        // Ignorar si no es JSON
       }
     }
   };
 
-  // ÚNICA descarga inicial al abrir la aplicación (sin setInterval en segundo plano)
   sincronizarDatosPuntualesDesdeNube(true);
 }
 

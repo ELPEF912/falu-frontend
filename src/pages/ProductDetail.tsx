@@ -118,7 +118,58 @@ export interface ProductoDetalle {
   };
 }
 
-// Componente integrado "Sobre este artículo" con índices y mayúsculas imponentes
+// Helper para apilar compras del mismo producto y mismo estado en Mis Compras
+export function registrarCompraApiladaEnStorage(nuevaCompra: {
+  id_usuario: number;
+  id_producto: number;
+  id_vendedor: number;
+  titulo_snapshot: string;
+  precio_snapshot: number;
+  imagen_snapshot: string | null;
+  categoria_snapshot: string;
+  cantidad: number;
+  fecha: string;
+  estado_compra: 'completada' | 'cancelada_sin_stock';
+  motivo_cancelacion?: string;
+}) {
+  const comprasGuardadas: any[] = JSON.parse(
+    localStorage.getItem('falu_compras_usuarios') || '[]'
+  );
+
+  const idxExistente = comprasGuardadas.findIndex(
+    (c) =>
+      Number(c.id_usuario) === Number(nuevaCompra.id_usuario) &&
+      String(c.id_producto) === String(nuevaCompra.id_producto) &&
+      (c.estado_compra || 'completada') === nuevaCompra.estado_compra
+  );
+
+  if (idxExistente !== -1) {
+    const previa = comprasGuardadas[idxExistente];
+    const actualizada = {
+      ...previa,
+      cantidad: Number(previa.cantidad || 1) + Number(nuevaCompra.cantidad || 1),
+      fecha: nuevaCompra.fecha,
+      precio_snapshot: nuevaCompra.precio_snapshot,
+      titulo_snapshot: nuevaCompra.titulo_snapshot,
+      imagen_snapshot: nuevaCompra.imagen_snapshot || previa.imagen_snapshot,
+      motivo_cancelacion:
+        nuevaCompra.motivo_cancelacion || previa.motivo_cancelacion
+    };
+    comprasGuardadas.splice(idxExistente, 1);
+    comprasGuardadas.unshift(actualizada);
+  } else {
+    comprasGuardadas.unshift({
+      id_compra: Date.now() + Math.floor(Math.random() * 1000),
+      ...nuevaCompra
+    });
+  }
+
+  localStorage.setItem(
+    'falu_compras_usuarios',
+    JSON.stringify(comprasGuardadas)
+  );
+}
+
 function resaltarMayusculasImponentes(texto: string) {
   const partes = texto.split(/([A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ0-9]{2,})*)/g);
   return partes.map((parte, i) => {
@@ -271,14 +322,15 @@ export default function ProductDetail() {
   const { agregarAlCarrito } = useCart();
 
   const [producto, setProducto] = useState<ProductoDetalle | null>(null);
-  const [todosLosProductos, setTodosLosProductos] = useState<ProductoDetalle[]>([]);
+  const [todosLosProductos, setTodosLosProductos] = useState<ProductoDetalle[]>(
+    []
+  );
   const [indiceFoto, setIndiceFoto] = useState<number>(0);
   const [cargando, setCargando] = useState(true);
 
   const [haComprado, setHaComprado] = useState(false);
-const [mensajeCompra, setMensajeCompra] = useState('');
-const [compraCanceladaAviso, setCompraCanceladaAviso] = useState('');
-const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
+  const [mensajeCompra, setMensajeCompra] = useState('');
+  const [compraCanceladaAviso, setCompraCanceladaAviso] = useState('');
 
   const [modoEdicion, setModoEdicion] = useState(false);
   const [editTitulo, setEditTitulo] = useState('');
@@ -304,7 +356,8 @@ const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
   >({});
 
   const [opiniones, setOpiniones] = useState<Opinion[]>([]);
-  const [estrellasSeleccionadas, setEstrellasSeleccionadas] = useState<number>(5);
+  const [estrellasSeleccionadas, setEstrellasSeleccionadas] =
+    useState<number>(5);
   const [comentarioOpinion, setComentarioOpinion] = useState('');
   const [mediaOpinion, setMediaOpinion] = useState<MediaItem[]>([]);
   const [errorMedia, setErrorMedia] = useState('');
@@ -365,12 +418,14 @@ const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
     }
 
     if (user) {
-      const comprasGuardadas: { id_usuario: number; id_producto: number }[] =
-        JSON.parse(localStorage.getItem('falu_compras_usuarios') || '[]');
+      const comprasGuardadas: any[] = JSON.parse(
+        localStorage.getItem('falu_compras_usuarios') || '[]'
+      );
       const compro = comprasGuardadas.some(
         (c) =>
           Number(c.id_usuario) === Number(user.id_usuario) &&
-          String(c.id_producto) === String(id)
+          String(c.id_producto) === String(id) &&
+          c.estado_compra !== 'cancelada_sin_stock'
       );
       setHaComprado(compro);
     } else {
@@ -380,9 +435,16 @@ const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
     const todasPreguntas: Pregunta[] = JSON.parse(
       localStorage.getItem('falu_preguntas_productos') || '[]'
     );
-    setPreguntas(
-      todasPreguntas.filter((p) => String(p.id_producto) === String(id))
+    const delProducto = todasPreguntas.filter(
+      (p) => String(p.id_producto) === String(id)
     );
+    const mapaPregUnicas = new Map<number, Pregunta>();
+    delProducto.forEach((p) => {
+      if (!mapaPregUnicas.has(p.id_pregunta)) {
+        mapaPregUnicas.set(p.id_pregunta, p);
+      }
+    });
+    setPreguntas(Array.from(mapaPregUnicas.values()));
 
     const todasOpiniones: Opinion[] = JSON.parse(
       localStorage.getItem('falu_opiniones_productos') || '[]'
@@ -392,17 +454,17 @@ const [comprandoEnCurso, setComprandoEnCurso] = useState(false);
     );
   };
 
-useEffect(() => {
+  useEffect(() => {
     const cargarDatosIniciales = async () => {
       setCargando(true);
       setIndiceFoto(0);
       setMensajeCompra('');
+      setCompraCanceladaAviso('');
 
       const guardadosLocal = JSON.parse(
         localStorage.getItem('falu_productos_locales') || '[]'
       );
 
-      // Solo descarga de la base de datos si todavía no hay productos en memoria
       if (!Array.isArray(guardadosLocal) || guardadosLocal.length === 0) {
         try {
           const res = await api.get('/products');
@@ -413,7 +475,6 @@ useEffect(() => {
             );
           }
         } catch {
-          // Usa copia local
         }
       }
 
@@ -423,7 +484,7 @@ useEffect(() => {
 
     cargarDatosIniciales();
   }, [id, user]);
-  
+
   useEffect(() => {
     window.addEventListener('falu_actualizacion', sincronizarVistaDesdeStorage);
     window.addEventListener('storage', sincronizarVistaDesdeStorage);
@@ -436,7 +497,7 @@ useEffect(() => {
     };
   }, [id, user]);
 
-  const guardarCambiosProducto = async (productoActualizado: ProductoDetalle) => {
+  const guardarCambiosProducto = (productoActualizado: ProductoDetalle) => {
     setProducto(productoActualizado);
 
     const guardadosLocal: ProductoDetalle[] = JSON.parse(
@@ -459,14 +520,9 @@ useEffect(() => {
     );
     setTodosLosProductos(nuevaListaLocal);
 
-    try {
-      await api.put(
-        `/products/${productoActualizado.id_producto}`,
-        productoActualizado
-      );
-    } catch {
-      // Sincronizado vía /api/sync
-    }
+    api
+      .put(`/products/${productoActualizado.id_producto}`, productoActualizado)
+      .catch(() => {});
   };
 
   const handleConfirmarReporteProducto = (e: FormEvent) => {
@@ -598,7 +654,7 @@ useEffect(() => {
     });
   };
 
-  const handleGuardarEdicion = async (e: FormEvent) => {
+  const handleGuardarEdicion = (e: FormEvent) => {
     e.preventDefault();
     if (!producto || !esVendedorDueno) return;
 
@@ -627,7 +683,7 @@ useEffect(() => {
       }
     };
 
-    await guardarCambiosProducto(actualizado);
+    guardarCambiosProducto(actualizado);
 
     if (nuevoStockNum > 0) {
       notificarReposicionStock(
@@ -647,7 +703,7 @@ useEffect(() => {
     setModoEdicion(false);
   };
 
-  const handleConfirmarBajaAdmin = async (e: FormEvent) => {
+  const handleConfirmarBajaAdmin = (e: FormEvent) => {
     e.preventDefault();
     if (!producto || !esAdmin || esVendedorDueno) return;
 
@@ -657,7 +713,7 @@ useEffect(() => {
       motivo_baja: motivoBajaSeleccionado
     };
 
-    await guardarCambiosProducto(actualizado);
+    guardarCambiosProducto(actualizado);
     registrarLogAuditoria({
       admin_nombre: `${user?.nombre || 'Admin'} ${user?.apellido || ''}`.trim(),
       rol_admin:
@@ -672,7 +728,7 @@ useEffect(() => {
     setModalBajaAdmin(false);
   };
 
-  const handleRestaurarPublicacionAdmin = async () => {
+  const handleRestaurarPublicacionAdmin = () => {
     if (!producto || !esAdmin || esVendedorDueno) return;
 
     const actualizado: ProductoDetalle = {
@@ -681,7 +737,7 @@ useEffect(() => {
       motivo_baja: null
     };
 
-    await guardarCambiosProducto(actualizado);
+    guardarCambiosProducto(actualizado);
     registrarLogAuditoria({
       admin_nombre: `${user?.nombre || 'Admin'} ${user?.apellido || ''}`.trim(),
       rol_admin:
@@ -695,12 +751,18 @@ useEffect(() => {
     });
   };
 
-const handleComprarAhora = async () => {
+  // DESCUENTO AUTOMÁTICO E INSTANTÁNEO + VALIDACIÓN EN SEGUNDO PLANO SI SE AGOTÓ
+  const handleComprarAhora = () => {
     if (!isAuthenticated || !user) {
       navigate('/login');
       return;
     }
-    if (!producto || esVendedorDueno || producto.estado === 'oculto' || comprandoEnCurso) {
+    if (
+      !producto ||
+      esVendedorDueno ||
+      producto.estado === 'oculto' ||
+      producto.stock <= 0
+    ) {
       return;
     }
 
@@ -713,138 +775,161 @@ const handleComprarAhora = async () => {
       return;
     }
 
-    setComprandoEnCurso(true);
     setMensajeCompra('');
     setCompraCanceladaAviso('');
 
-    try {
-      // 1. Consultar el stock REAL en Neon PostgreSQL en el instante del clic
-      let stockRealEnServidor = Number(producto.stock);
-      try {
-        const resRemoto = await api.get(`/products/${producto.id_producto}`);
-        if (resRemoto.data && resRemoto.data.stock !== undefined) {
-          stockRealEnServidor = Number(resRemoto.data.stock);
-        }
-      } catch {
-        // Si el endpoint individual falla, consultamos la lista general
-        try {
-          const resLista = await api.get('/products');
-          if (Array.isArray(resLista.data)) {
-            const prodRemoto = resLista.data.find(
-              (p: any) => String(p.id_producto) === String(producto.id_producto)
-            );
-            if (prodRemoto) {
-              stockRealEnServidor = Number(prodRemoto.stock);
-            }
-          }
-        } catch {
-          // Usa el local si no hay red
-        }
-      }
+    const prodSnapshot = { ...producto };
 
-      // 2. CASO: El usuario tenía la pestaña abierta pero el producto YA SE AGOTÓ
-      if (stockRealEnServidor <= 0) {
-        const productoAgotado: ProductoDetalle = {
-          ...producto,
-          stock: 0
+    // Descontar el stock en pantalla AUTOMÁTICAMENTE
+    const nuevoStockInmediato = Math.max(0, Number(prodSnapshot.stock) - 1);
+    const productoConStockRestado: ProductoDetalle = {
+      ...prodSnapshot,
+      stock: nuevoStockInmediato
+    };
+    setProducto(productoConStockRestado);
+
+    const guardadosLocal: ProductoDetalle[] = JSON.parse(
+      localStorage.getItem('falu_productos_locales') || '[]'
+    );
+    const nuevaListaLocal = guardadosLocal.map((p) =>
+      String(p.id_producto) === String(prodSnapshot.id_producto)
+        ? productoConStockRestado
+        : p
+    );
+    localStorage.setItem(
+      'falu_productos_locales',
+      JSON.stringify(nuevaListaLocal)
+    );
+    setTodosLosProductos(nuevaListaLocal);
+
+    // Verificar en segundo plano contra la base de datos por si el producto se había agotado mientras tenías la página abierta
+    api
+      .get(`/products/${prodSnapshot.id_producto}`)
+      .then((resRemoto) => {
+        const stockRealBD =
+          resRemoto.data && resRemoto.data.stock !== undefined
+            ? Number(resRemoto.data.stock)
+            : Number(prodSnapshot.stock);
+
+        // Si en la base de datos ya no quedaba stock (0), registrar error en Mis Compras
+        if (stockRealBD <= 0) {
+          const prodCero: ProductoDetalle = { ...prodSnapshot, stock: 0 };
+          guardarCambiosProducto(prodCero);
+
+          registrarCompraApiladaEnStorage({
+            id_usuario: user.id_usuario,
+            id_producto: prodSnapshot.id_producto,
+            id_vendedor: Number(prodSnapshot.id_vendedor || 1),
+            titulo_snapshot: prodSnapshot.titulo,
+            precio_snapshot: prodSnapshot.precio,
+            imagen_snapshot:
+              prodSnapshot.imagen_url || prodSnapshot.imagenes?.[0] || null,
+            categoria_snapshot: prodSnapshot.categoria,
+            cantidad: 1,
+            fecha: new Date().toLocaleDateString('es-AR'),
+            estado_compra: 'cancelada_sin_stock',
+            motivo_cancelacion:
+              'Error al procesar la compra: el producto ya no tenía stock disponible en la base de datos.'
+          });
+
+          notificarCompraCanceladaSinStock({
+            id_producto: prodSnapshot.id_producto,
+            titulo_producto: prodSnapshot.titulo,
+            id_comprador: user.id_usuario
+          });
+
+          setCompraCanceladaAviso(
+            'No se pudo procesar la compra porque el producto ya se había quedado sin stock. El error quedó registrado en Mis Compras.'
+          );
+          return;
+        }
+
+        // Si había stock real, confirmar descuento en la base de datos y apilar compra en Mis Compras
+        const stockFinalReal = Math.max(0, stockRealBD - 1);
+        const prodConfirmado: ProductoDetalle = {
+          ...prodSnapshot,
+          stock: stockFinalReal
         };
-        await guardarCambiosProducto(productoAgotado);
+        guardarCambiosProducto(prodConfirmado);
 
-        // Registrar la compra como CANCELADA en Mis Compras
-        const comprasGuardadas = JSON.parse(
-          localStorage.getItem('falu_compras_usuarios') || '[]'
-        );
-        comprasGuardadas.unshift({
-          id_compra: Date.now(),
+        registrarCompraApiladaEnStorage({
           id_usuario: user.id_usuario,
-          id_producto: producto.id_producto,
-          id_vendedor: producto.id_vendedor || 1,
-          titulo_snapshot: producto.titulo,
-          precio_snapshot: producto.precio,
-          imagen_snapshot: producto.imagen_url || producto.imagenes?.[0] || null,
-          categoria_snapshot: producto.categoria,
+          id_producto: prodSnapshot.id_producto,
+          id_vendedor: Number(prodSnapshot.id_vendedor || 1),
+          titulo_snapshot: prodSnapshot.titulo,
+          precio_snapshot: prodSnapshot.precio,
+          imagen_snapshot:
+            prodSnapshot.imagen_url || prodSnapshot.imagenes?.[0] || null,
+          categoria_snapshot: prodSnapshot.categoria,
           cantidad: 1,
           fecha: new Date().toLocaleDateString('es-AR'),
-          estado_compra: 'cancelada_sin_stock',
-          motivo_cancelacion:
-            'Compra cancelada automáticamente: el producto ya no tenía stock disponible al procesar el pago.'
+          estado_compra: 'completada'
         });
-        localStorage.setItem(
-          'falu_compras_usuarios',
-          JSON.stringify(comprasGuardadas)
+
+        registrarEventosPostCompra({
+          id_producto: prodSnapshot.id_producto,
+          titulo_producto: prodSnapshot.titulo,
+          id_vendedor: Number(prodSnapshot.id_vendedor || 1),
+          vendedor_nombre: prodSnapshot.vendedor_nombre || 'Vendedor Falú',
+          id_comprador: user.id_usuario,
+          comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim()
+        });
+
+        if (stockFinalReal === 0) {
+          notificarProductoSinStock({
+            id_producto: prodSnapshot.id_producto,
+            titulo_producto: prodSnapshot.titulo,
+            id_vendedor: Number(prodSnapshot.id_vendedor || 1)
+          });
+        }
+
+        setHaComprado(true);
+        setMensajeCompra(
+          '¡Compra realizada con éxito! Podés ver tus artículos apilados o escribirle al vendedor desde Mis Compras.'
         );
+      })
+      .catch(() => {
+        // Fallback inmediato si el producto aún no estaba en consulta individual
+        guardarCambiosProducto(productoConStockRestado);
 
-        // Enviar notificación al comprador avisando que se canceló por falta de stock
-        notificarCompraCanceladaSinStock({
-          id_producto: producto.id_producto,
-          titulo_producto: producto.titulo,
-          id_comprador: user.id_usuario
+        registrarCompraApiladaEnStorage({
+          id_usuario: user.id_usuario,
+          id_producto: prodSnapshot.id_producto,
+          id_vendedor: Number(prodSnapshot.id_vendedor || 1),
+          titulo_snapshot: prodSnapshot.titulo,
+          precio_snapshot: prodSnapshot.precio,
+          imagen_snapshot:
+            prodSnapshot.imagen_url || prodSnapshot.imagenes?.[0] || null,
+          categoria_snapshot: prodSnapshot.categoria,
+          cantidad: 1,
+          fecha: new Date().toLocaleDateString('es-AR'),
+          estado_compra: 'completada'
         });
 
-        setCompraCanceladaAviso(
-          'Tu compra fue CANCELADA porque este producto se agotó hace unos instantes y ya no quedan unidades disponibles. Podés ver la constancia en tus Notificaciones y en Mis Compras.'
+        registrarEventosPostCompra({
+          id_producto: prodSnapshot.id_producto,
+          titulo_producto: prodSnapshot.titulo,
+          id_vendedor: Number(prodSnapshot.id_vendedor || 1),
+          vendedor_nombre: prodSnapshot.vendedor_nombre || 'Vendedor Falú',
+          id_comprador: user.id_usuario,
+          comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim()
+        });
+
+        if (nuevoStockInmediato === 0) {
+          notificarProductoSinStock({
+            id_producto: prodSnapshot.id_producto,
+            titulo_producto: prodSnapshot.titulo,
+            id_vendedor: Number(prodSnapshot.id_vendedor || 1)
+          });
+        }
+
+        setHaComprado(true);
+        setMensajeCompra(
+          '¡Compra realizada con éxito! Podés ver tus artículos apilados o escribirle al vendedor desde Mis Compras.'
         );
-        return;
-      }
-
-      // 3. CASO: Sí hay stock real -> Descontar 1 unidad sobre el stock real del servidor
-      const nuevoStock = Math.max(0, stockRealEnServidor - 1);
-      const productoActualizado: ProductoDetalle = {
-        ...producto,
-        stock: nuevoStock
-      };
-
-      await guardarCambiosProducto(productoActualizado);
-
-      const comprasGuardadas = JSON.parse(
-        localStorage.getItem('falu_compras_usuarios') || '[]'
-      );
-      comprasGuardadas.unshift({
-        id_compra: Date.now(),
-        id_usuario: user.id_usuario,
-        id_producto: producto.id_producto,
-        id_vendedor: producto.id_vendedor || 1,
-        titulo_snapshot: producto.titulo,
-        precio_snapshot: producto.precio,
-        imagen_snapshot: producto.imagen_url || producto.imagenes?.[0] || null,
-        categoria_snapshot: producto.categoria,
-        cantidad: 1,
-        fecha: new Date().toLocaleDateString('es-AR'),
-        estado_compra: 'completada'
       });
-      localStorage.setItem(
-        'falu_compras_usuarios',
-        JSON.stringify(comprasGuardadas)
-      );
-
-      // Notificar venta al vendedor y abrir el chat post-venta
-      registrarEventosPostCompra({
-        id_producto: producto.id_producto,
-        titulo_producto: producto.titulo,
-        id_vendedor: Number(producto.id_vendedor || 1),
-        vendedor_nombre: producto.vendedor_nombre || 'Vendedor Falú',
-        id_comprador: user.id_usuario,
-        comprador_nombre: `${user.nombre} ${user.apellido || ''}`.trim()
-      });
-
-      // Solo si esta compra hizo que el stock real pase de 1 a 0, avisar una única vez al vendedor
-      if (nuevoStock === 0) {
-        notificarProductoSinStock({
-          id_producto: producto.id_producto,
-          titulo_producto: producto.titulo,
-          id_vendedor: Number(producto.id_vendedor || 1)
-        });
-      }
-
-      setHaComprado(true);
-      setMensajeCompra(
-        '¡Compra registrada con éxito! Se habilitó el chat con el vendedor abajo a la derecha y ya podés dejar tu opinión.'
-      );
-    } finally {
-      setComprandoEnCurso(false);
-    }
   };
-  
+
   const handleEnviarPregunta = (e: FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated || !user) {
@@ -876,7 +961,8 @@ const handleComprarAhora = async () => {
       JSON.stringify(actualizadas)
     );
 
-    // Notificar al vendedor en el apartado "Preguntas"
+    setNuevaPregunta('');
+
     notificarNuevaPregunta({
       id_producto: producto.id_producto,
       titulo_producto: producto.titulo,
@@ -884,9 +970,6 @@ const handleComprarAhora = async () => {
       usuario_pregunta_nombre: nombreAutor,
       texto_pregunta: textoLimpio
     });
-
-    setPreguntas((prev) => [preguntaObj, ...prev]);
-    setNuevaPregunta('');
   };
 
   const handleEliminarMiPregunta = (preg: Pregunta) => {
@@ -933,7 +1016,6 @@ const handleComprarAhora = async () => {
       JSON.stringify(actualizadas)
     );
 
-    // Notificar al autor de la pregunta que el vendedor le respondió
     if (pregOriginal?.id_usuario) {
       notificarRespuestaPregunta({
         id_producto: producto.id_producto,
@@ -1054,7 +1136,12 @@ const handleComprarAhora = async () => {
       JSON.stringify(nuevasOpinionesGlobal)
     );
 
-    // Notificar al vendedor en el apartado "Opiniones"
+    const opinionesDeEsteProducto = nuevasOpinionesGlobal.filter(
+      (o) => String(o.id_producto) === String(producto.id_producto)
+    );
+    setOpiniones(opinionesDeEsteProducto);
+    recalcularPromedioProducto(opinionesDeEsteProducto);
+
     notificarNuevaOpinion({
       id_producto: producto.id_producto,
       titulo_producto: producto.titulo,
@@ -1063,12 +1150,6 @@ const handleComprarAhora = async () => {
       calificacion: estrellasSeleccionadas,
       comentario: comentarioLimpio
     });
-
-    const opinionesDeEsteProducto = nuevasOpinionesGlobal.filter(
-      (o) => String(o.id_producto) === String(producto.id_producto)
-    );
-    setOpiniones(opinionesDeEsteProducto);
-    recalcularPromedioProducto(opinionesDeEsteProducto);
 
     setComentarioOpinion('');
     setMediaOpinion([]);
@@ -1473,13 +1554,13 @@ const handleComprarAhora = async () => {
                     <span>{mensajeCompra}</span>
                   </div>
                 )}
+
                 {compraCanceladaAviso && (
                   <div className="mt-4 bg-red-50 border-2 border-red-300 text-red-800 p-3.5 rounded-xl text-xs font-bold flex items-start gap-2">
                     <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                     <span>{compraCanceladaAviso}</span>
                   </div>
                 )}
-
               </div>
 
               {esVendedorDueno ? (
@@ -1751,7 +1832,7 @@ const handleComprarAhora = async () => {
 
           {esVendedorDueno ? (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6 text-xs text-slate-600">
-              Sos el vendedor de este producto. No podés realizar preguntas en tu propia publicación, pero desde acá podés responder las consultas de los interesados en tiempo real.
+              Sos el vendedor de este producto. No podés realizar preguntas en tu propia publicación, pero desde acá podés responder las consultas de los interesados.
             </div>
           ) : (
             <form

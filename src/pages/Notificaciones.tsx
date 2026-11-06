@@ -13,7 +13,7 @@ import {
   MapPin,
   XCircle
 } from 'lucide-react';
-import Navbar from '../components/Navbar';
+import Navbar, { obtenerDireccionConNumeroUsuario } from '../components/Navbar';
 import Footer from '../components/Footer';
 import { useAuth } from '../context/AuthContext';
 import { sincronizarDatosPuntualesDesdeNube } from '../services/api';
@@ -40,7 +40,7 @@ export interface NotificacionItem {
   leida: boolean;
 }
 
-// 1. Notificación de Venta + Creación garantizada del Chat post-venta
+// 1. Notificación de Venta + Creación del canal de chat (SIN abrir la ventana flotante automáticamente)
 export function registrarEventosPostCompra(params: {
   id_producto: number;
   titulo_producto: string;
@@ -51,20 +51,8 @@ export function registrarEventosPostCompra(params: {
 }) {
   const ahora = new Date().toLocaleString('es-AR');
 
-  const perfiles = JSON.parse(
-    localStorage.getItem('falu_perfiles_usuarios') || '{}'
-  );
-  const perfilComprador = perfiles[params.id_comprador];
-  let direccionTexto = 'Dirección acordada con el comprador';
-
-  if (
-    perfilComprador &&
-    Array.isArray(perfilComprador.direcciones) &&
-    perfilComprador.direcciones.length > 0
-  ) {
-    const dir = perfilComprador.direcciones[0];
-    direccionTexto = `${dir.calle} ${dir.numero}, ${dir.localidad}, ${dir.provincia} (CP: ${dir.codigo_postal})`;
-  }
+  const dirConNumero = obtenerDireccionConNumeroUsuario(params.id_comprador);
+  const direccionTexto = dirConNumero || 'Dirección acordada con el comprador';
 
   const todasNotif: NotificacionItem[] = JSON.parse(
     localStorage.getItem('falu_notificaciones') || '[]'
@@ -88,7 +76,7 @@ export function registrarEventosPostCompra(params: {
     JSON.stringify([nuevaNotifVenta, ...todasNotif])
   );
 
-  // Crear o reactivar conversación en el chat post-venta
+  // Crear conversación con iniciado_por_comprador: true para que aparezca de inmediato en la lista de ambos
   const conversaciones = JSON.parse(
     localStorage.getItem('falu_conversaciones_chat') || '[]'
   );
@@ -98,19 +86,16 @@ export function registrarEventosPostCompra(params: {
       Number(c.id_comprador) === Number(params.id_comprador)
   );
 
-  let idConversacionActiva: number;
-
   if (indiceExistente === -1) {
-    idConversacionActiva = Date.now();
     const nuevaConv = {
-      id_conversacion: idConversacionActiva,
+      id_conversacion: Date.now() + Math.floor(Math.random() * 1000),
       id_producto: Number(params.id_producto),
       titulo_producto: params.titulo_producto,
       id_vendedor: Number(params.id_vendedor),
       vendedor_nombre: params.vendedor_nombre || 'Vendedor Falú',
       id_comprador: Number(params.id_comprador),
       comprador_nombre: params.comprador_nombre,
-      iniciado_por_comprador: false,
+      iniciado_por_comprador: true,
       no_leidos_vendedor: 0,
       no_leidos_comprador: 0,
       mensajes: []
@@ -121,18 +106,17 @@ export function registrarEventosPostCompra(params: {
       JSON.stringify(conversaciones)
     );
   } else {
-    idConversacionActiva = conversaciones[indiceExistente].id_conversacion;
+    conversaciones[indiceExistente].iniciado_por_comprador = true;
+    localStorage.setItem(
+      'falu_conversaciones_chat',
+      JSON.stringify(conversaciones)
+    );
   }
 
-  window.dispatchEvent(
-    new CustomEvent('falu_abrir_chat_compra', {
-      detail: { id_conversacion: idConversacionActiva }
-    })
-  );
+  window.dispatchEvent(new Event('falu_nuevo_mensaje_chat'));
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 2. Notificación al COMPRADOR cuando intenta comprar un producto que ya se había quedado sin stock
 export function notificarCompraCanceladaSinStock(params: {
   id_producto: number;
   titulo_producto: string;
@@ -150,7 +134,7 @@ export function notificarCompraCanceladaSinStock(params: {
     producto_titulo: params.titulo_producto,
     fecha_compra: new Date().toLocaleString('es-AR'),
     mensaje_extra:
-      'Tu compra fue cancelada automáticamente porque el producto se agotó hace unos instantes y ya no quedan unidades en stock. No se realizó ningún cargo.',
+      'No se pudo procesar tu compra porque el producto se quedó sin stock disponible. Podés ver el detalle del error en Mis Compras.',
     leida: false
   };
 
@@ -161,7 +145,6 @@ export function notificarCompraCanceladaSinStock(params: {
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 3. Notificación al vendedor cuando su producto llega a 0 unidades (Evita duplicados consecutivos)
 export function notificarProductoSinStock(params: {
   id_producto: number;
   titulo_producto: string;
@@ -171,7 +154,6 @@ export function notificarProductoSinStock(params: {
     localStorage.getItem('falu_notificaciones') || '[]'
   );
 
-  // Evitar enviar múltiples alertas de "Sin Stock" seguidas para el mismo producto si ya hay una sin leer
   const yaExisteAlertaActiva = todasNotif.some(
     (n) =>
       n.tipo === 'sin_stock' &&
@@ -200,7 +182,6 @@ export function notificarProductoSinStock(params: {
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 4. Notificación cuando el vendedor repone stock
 export function notificarReposicionStock(
   idProducto: number,
   tituloProducto: string,
@@ -267,7 +248,6 @@ export function notificarReposicionStock(
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 5. Notificación cuando te hacen una PREGUNTA
 export function notificarNuevaPregunta(params: {
   id_producto: number;
   titulo_producto: string;
@@ -298,7 +278,6 @@ export function notificarNuevaPregunta(params: {
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 6. Notificación cuando el vendedor RESPONDE tu pregunta
 export function notificarRespuestaPregunta(params: {
   id_producto: number;
   titulo_producto: string;
@@ -327,7 +306,6 @@ export function notificarRespuestaPregunta(params: {
   window.dispatchEvent(new Event('falu_actualizacion'));
 }
 
-// 7. Notificación cuando dejan una OPINIÓN
 export function notificarNuevaOpinion(params: {
   id_producto: number;
   titulo_producto: string;
@@ -385,7 +363,6 @@ export default function Notificaciones() {
       navigate('/login');
       return;
     }
-    // Al entrar a la página de notificaciones, trae las últimas novedades de la base de datos
     sincronizarDatosPuntualesDesdeNube().then(() => {
       cargarMisNotificaciones();
     });
@@ -616,7 +593,7 @@ export default function Notificaciones() {
                         {n.tipo === 'venta'
                           ? 'Nueva Venta'
                           : n.tipo === 'compra_cancelada'
-                          ? 'Compra Cancelada (Sin Stock)'
+                          ? 'Error de Compra (Sin Stock)'
                           : n.tipo === 'pregunta'
                           ? 'Pregunta / Respuesta'
                           : n.tipo === 'opinion'
